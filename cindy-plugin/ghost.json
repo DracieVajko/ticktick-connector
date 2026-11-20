@@ -1,0 +1,1020 @@
+{
+  "schemaVersion": 3,
+  "minCindyVersion": "0.1.139",
+  "id": "ticktick-connector",
+  "name": "TickTick",
+  "description": "Manage TickTick tasks, projects, tags and comments from Cindy, Claude, Codex, Cursor or any MCP client.",
+  "whenToUse": "Use when the user wants to see, add, edit, complete, delete, move, search or organize TickTick tasks, projects, tags or comments, or asks about their TickTick agenda, inbox, priorities or due dates.",
+  "version": "1.2.1",
+  "releaseNotes": "Follow-up to 1.2.0. The token store has one error code for reads, writes and removal, so a permission problem no longer looks like a missing connection; an unknown schema type is refused instead of accepting any value; manage_tags and move_tasks return the same projections as every other read; a batch complete_task no longer serialises an undefined projectId; and the tool list and the manifest are one projection. New tests cover a mismatched OAuth state, a truncated response and logout.",
+  "icon": "assets/icon.png",
+  "readme": {
+    "en": "README.md",
+    "zh-CN": "README.zh-CN.md"
+  },
+  "command": "ticktick",
+  "entry": "main.js",
+  "launch": "on-demand",
+  "tools": [
+    {
+      "name": "list_projects",
+      "description": "List TickTick projects, including the Inbox alias, with their IDs, names, colors and permissions. Use the returned projectId in task tools.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 200
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "get_project",
+      "description": "Get one TickTick project. With includeTasks true (default) it also returns the project columns and its open tasks; with false, count, tasks and columns are null.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID from list_projects, or \"inbox\"."
+          },
+          "includeTasks": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "create_project",
+      "description": "Create a TickTick project and return its new ID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "color": {
+            "type": "string",
+            "description": "Hex color such as #4772FA."
+          },
+          "viewMode": {
+            "type": "string",
+            "enum": [
+              "list",
+              "kanban",
+              "timeline"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "TASK",
+              "NOTE"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "update_project",
+      "description": "Rename or change the color, view or kind of an existing TickTick project.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "color": {
+            "type": "string"
+          },
+          "viewMode": {
+            "type": "string",
+            "enum": [
+              "list",
+              "kanban",
+              "timeline"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "TASK",
+              "NOTE"
+            ]
+          },
+          "sortOrder": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "delete_project",
+      "description": "Permanently delete a TickTick project. Requires confirm:true; ask the user first. Prefer closing tasks or moving them when unsure.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true after the user agrees to delete."
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "list_tasks",
+      "description": "List TickTick tasks, optionally limited to one project or \"inbox\". Status can be open, completed or all; results are capped at 200.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "Project ID, or \"inbox\". Omit to search all accessible projects."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed",
+              "all"
+            ],
+            "default": "open",
+            "description": "Which task statuses to return: open, completed, or both."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "filter_tasks",
+      "description": "Find TickTick tasks by project, date range, priority, tags or status. Use this for agendas and due-date queries; results are capped at 200.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only tasks starting on or after this date."
+          },
+          "endDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only tasks starting on or before this date."
+          },
+          "priority": {
+            "type": "array",
+            "items": {
+              "description": "TickTick priority: 0/none, 1/low, 3/medium, 5/high.",
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    1,
+                    3,
+                    5
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "low",
+                    "medium",
+                    "high"
+                  ]
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "description": "Match any of these priorities."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "description": "Tasks must contain all of these tags."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed",
+              "all"
+            ],
+            "default": "open",
+            "description": "Which task statuses to return: open, completed, or both."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 100
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "search_tasks",
+      "description": "Search TickTick tasks by keyword, with optional project, tag, status and due-date filters. Results are capped at 200.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keywords": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Words to search for in task titles and content."
+          },
+          "projectIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "completed",
+              "all"
+            ],
+            "default": "open",
+            "description": "Which task statuses to return: open, completed, or both."
+          },
+          "dueFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only tasks due on or after this date."
+          },
+          "dueTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only tasks due on or before this date."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 100
+          }
+        },
+        "required": [
+          "keywords"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "get_task",
+      "description": "Get one TickTick task by projectId and taskId, including its checklist and recurrence.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID."
+          },
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick task ID."
+          }
+        },
+        "required": [
+          "projectId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "create_task",
+      "description": "Create a TickTick task in a project. Dates accept YYYY-MM-DD or ISO 8601; priority accepts none/low/medium/high or 0/1/3/5.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID from list_projects; use \"inbox\" for the Inbox."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "content": {
+            "type": "string",
+            "description": "Task notes/body."
+          },
+          "desc": {
+            "type": "string",
+            "description": "Checklist description."
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Start date/time."
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Due date/time."
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "IANA time zone, for example Europe/London."
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "priority": {
+            "description": "TickTick priority: 0/none, 1/low, 3/medium, 5/high.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1,
+                  3,
+                  5
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ]
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 50,
+            "description": "Replace the task tags with this list. Use [] or null to clear them."
+          },
+          "reminders": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 20,
+            "description": "TickTick reminder triggers such as \"TRIGGER:PT0S\" or \"TRIGGER:P0DT9H0M0S\"."
+          },
+          "repeatFlag": {
+            "type": "string",
+            "description": "RFC 5545 recurrence rule, for example RRULE:FREQ=WEEKLY;INTERVAL=1."
+          },
+          "repeatFrom": {
+            "type": "string",
+            "enum": [
+              "0",
+              "1",
+              "2"
+            ],
+            "description": "Recurrence base: 0 original date, 1 completion date, 2 next calendar occurrence."
+          },
+          "items": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 100,
+            "description": "Checklist subtasks. Send the complete list when updating.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Existing subtask id when updating one."
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Subtask title."
+                },
+                "status": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    1
+                  ],
+                  "description": "0 = open, 1 = completed."
+                },
+                "startDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Subtask start date in YYYY-MM-DD or ISO 8601."
+                },
+                "dueDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Subtask due date in YYYY-MM-DD or ISO 8601."
+                },
+                "isAllDay": {
+                  "type": "boolean"
+                },
+                "timeZone": {
+                  "type": "string",
+                  "description": "IANA time zone, for example Europe/London."
+                },
+                "sortOrder": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "parentId": {
+            "type": "string",
+            "description": "Parent task ID to create a subtask."
+          }
+        },
+        "required": [
+          "projectId",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "update_task",
+      "description": "Update fields on an existing TickTick task. Omitted fields stay unchanged. Use complete_task to mark it done or move_tasks to move it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Current TickTick project ID."
+          },
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick task ID."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "desc": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New start date/time; null clears it."
+          },
+          "dueDate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New due date/time; null clears it."
+          },
+          "timeZone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isAllDay": {
+            "type": "boolean"
+          },
+          "priority": {
+            "description": "TickTick priority: 0/none, 1/low, 3/medium, 5/high.",
+            "oneOf": [
+              {
+                "type": "integer",
+                "enum": [
+                  0,
+                  1,
+                  3,
+                  5
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              }
+            ]
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 50,
+            "description": "Replace the task tags with this list. Use [] or null to clear them."
+          },
+          "reminders": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "maxItems": 20,
+            "description": "TickTick reminder triggers such as \"TRIGGER:PT0S\" or \"TRIGGER:P0DT9H0M0S\"."
+          },
+          "repeatFlag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "repeatFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "0",
+              "1",
+              "2",
+              null
+            ]
+          },
+          "items": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 100,
+            "description": "Checklist subtasks. Send the complete list when updating.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Existing subtask id when updating one."
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Subtask title."
+                },
+                "status": {
+                  "type": "integer",
+                  "enum": [
+                    0,
+                    1
+                  ],
+                  "description": "0 = open, 1 = completed."
+                },
+                "startDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Subtask start date in YYYY-MM-DD or ISO 8601."
+                },
+                "dueDate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Subtask due date in YYYY-MM-DD or ISO 8601."
+                },
+                "isAllDay": {
+                  "type": "boolean"
+                },
+                "timeZone": {
+                  "type": "string",
+                  "description": "IANA time zone, for example Europe/London."
+                },
+                "sortOrder": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Move under this parent task; null removes the parent."
+          },
+          "sortOrder": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projectId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "complete_task",
+      "description": "Mark one TickTick task completed, or complete up to 50 tasks in one project by passing taskIds. For taskIds, omit projectId to use the inbox.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Project ID. Required for taskId; optional for taskIds means the inbox."
+          },
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick task ID for a single task."
+          },
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 50,
+            "description": "Task IDs to complete in one project."
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "taskId"
+            ]
+          },
+          {
+            "required": [
+              "taskIds"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "delete_task",
+      "description": "Permanently delete a TickTick task. Requires confirm:true; ask the user first.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID."
+          },
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick task ID."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true after the user agrees to delete."
+          }
+        },
+        "required": [
+          "projectId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    },
+    {
+      "name": "move_tasks",
+      "description": "Move up to 50 TickTick tasks from one project to another.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "fromProjectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Source project ID."
+          },
+          "toProjectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Destination project ID."
+          },
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "fromProjectId",
+          "toProjectId",
+          "taskIds"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "manage_tags",
+      "description": "List TickTick tags, or create one. Use action \"list\" to see tags, or action \"create\" with a name.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "create"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Tag name for create; stored lowercase."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Optional display label; must match name when lowercased."
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "manage_comments",
+      "description": "List, add or delete comments on a TickTick task. Use action \"list\", \"add\" with content, or \"delete\" with commentId and confirm:true.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "add",
+              "delete"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick project ID."
+          },
+          "taskId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "TickTick task ID."
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Comment text for action \"add\"."
+          },
+          "commentId": {
+            "type": "string",
+            "description": "Comment ID for action \"delete\", from a previous list."
+          },
+          "confirm": {
+            "type": "boolean",
+            "description": "Must be true for action \"delete\" after the user agrees."
+          }
+        },
+        "required": [
+          "action",
+          "projectId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true
+      }
+    }
+  ],
+  "settingsHtml": "settings.html",
+  "network": {
+    "hosts": [
+      "api.ticktick.com",
+      "ticktick.com"
+    ],
+    "secrets": [
+      {
+        "key": "ticktick_account",
+        "label": "TickTick account",
+        "source": "oauth",
+        "hint": "Connect your TickTick account in the browser. No API token is needed.",
+        "inject": {
+          "header": "Authorization",
+          "format": "Bearer {value}",
+          "hosts": [
+            "api.ticktick.com"
+          ]
+        },
+        "oauth": {
+          "authorizeUrl": "https://ticktick.com/oauth/authorize",
+          "tokenUrl": "https://api.ticktick.com/oauth/token",
+          "clientId": "4OO7Zzir01YsqCXfo6",
+          "scopes": [
+            "tasks:read",
+            "tasks:write"
+          ],
+          "pkce": true,
+          "redirectPort": 53682
+        }
+      }
+    ]
+  },
+  "setup": {
+    "requires": [
+      {
+        "anyOf": [
+          "secret:ticktick_account"
+        ]
+      }
+    ]
+  }
+}

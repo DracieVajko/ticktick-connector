@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+*.cindy
+.DS_Store
+Thumbs.db
+token
+tokens.json
+.idea/
+.vscode/
+
+# desloppify working state
+.desloppify/
+scorecard.png
+query.json

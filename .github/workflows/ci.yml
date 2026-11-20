@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      # The shipped bundle and manifest are committed. Rebuild them and fail if
+      # the result differs, so a stale main.js or ghost.json cannot merge.
+      - run: npm run build
+      - run: git diff --exit-code

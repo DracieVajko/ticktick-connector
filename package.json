@@ -1,0 +1,48 @@
+{
+  "name": "ticktick-connector",
+  "version": "1.2.1",
+  "description": "Cindy-first TickTick connector: native Cindy plugin plus an OAuth MCP server for Claude, Codex, Cursor and other harnesses.",
+  "type": "module",
+  "bin": {
+    "ticktick-mcp": "bin/ticktick-mcp.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "check": "npm run lint && npm run build && npm test",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "ticktick",
+    "mcp",
+    "model-context-protocol",
+    "cindy",
+    "claude",
+    "codex",
+    "tasks"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "DracieVajko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DracieVajko/ticktick-connector.git"
+  },
+  "homepage": "https://github.com/DracieVajko/ticktick-connector#readme",
+  "bugs": {
+    "url": "https://github.com/DracieVajko/ticktick-connector/issues"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.39.5"
+  }
+}

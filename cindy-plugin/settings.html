@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 12px;
+      font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text-primary, inherit);
+    }
+    .card { display: grid; gap: 12px; max-width: 620px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--surface-2, rgba(127,127,127,.12));
+      font-size: 12px;
+    }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-tertiary, #888); }
+    .dot.ok { background: var(--success, #2f9e62); }
+    .dot.bad { background: var(--danger, #d14343); }
+    button {
+      padding: 8px 12px;
+      border: 1px solid var(--border-default, #d9d9d4);
+      border-radius: 8px;
+      background: var(--surface, #fff);
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    button.primary { background: var(--accent, #4772fa); border-color: var(--accent, #4772fa); color: #fff; }
+    button.danger { color: var(--danger, #d14343); }
+    button:disabled { opacity: .55; cursor: default; }
+    .hint, .message { color: var(--text-secondary, #666); font-size: 12px; }
+    .message.error { color: var(--danger, #d14343); }
+    .message.ok { color: var(--success, #2f9e62); }
+    .accounts { display: grid; gap: 8px; }
+    .account {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px;
+      border: 1px solid var(--border-default, #d9d9d4);
+      border-radius: 10px;
+      background: var(--surface, #fff);
+    }
+    .account-main { display: grid; gap: 2px; min-width: 0; }
+    .account-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account-meta { color: var(--text-secondary, #666); font-size: 12px; }
+    .account-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: var(--surface-2, rgba(127,127,127,.12));
+      font-size: 11px;
+      font-weight: 500;
+    }
+    a { color: var(--accent, #4772fa); }
+    .empty { padding: 10px 0; color: var(--text-secondary, #666); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row">
+      <strong>TickTick account</strong>
+      <span class="status"><span class="dot" id="dot"></span><span id="statusText">Checking…</span></span>
+    </div>
+
+    <div class="hint">
+      Connect with your TickTick account in the browser. Cindy stores the OAuth token in its encrypted vault and refreshes it automatically.
+      No API token or manually copied credentials are needed.
+    </div>
+
+    <div class="accounts" id="accounts"></div>
+
+    <div class="row">
+      <button class="primary" id="connect">Connect TickTick</button>
+      <a href="https://ticktick.com/webapp/" id="webLink">Open TickTick ↗</a>
+    </div>
+
+    <div class="message" id="message" role="status" aria-live="polite"></div>
+  </div>
+  <script src="/settings.js"></script>
+</body>
+</html>
