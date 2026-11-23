@@ -1,27 +1,19 @@
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { describeError, TickTickError } from './core.mjs';
-import { manifest } from './manifest.mjs';
-
-const OAUTH_SECRET_KEY = 'ticktick_account';
-
-function oauthConfig() {
-  const secret = manifest.network.secrets.find((entry) => entry.key === OAUTH_SECRET_KEY);
-  if (!secret?.oauth) {
-    throw new TickTickError('The plugin manifest has no TickTick OAuth secret.', {
-      code: 'INVALID_CONFIGURATION',
-    });
-  }
-  return secret.oauth;
-}
-
-function log(message) {
-  process.stderr.write(`[ticktick-mcp] ${message}\n`);
-}
+import { OAUTH } from './oauth-config.mjs';
+import {
+  authorizeUrlFor,
+  callbackRedirectUri,
+  parseTokenJson,
+  refreshRequestBody,
+  tokenFileRecord,
+  tokenRequestBody,
+} from './oauth-protocol.mjs';
 
 export function oauthFilePath() {
   return (
@@ -32,15 +24,21 @@ export function oauthFilePath() {
 
 /** Read lazily so a changed TICKTICK_REDIRECT_PORT takes effect without a restart. */
 export function oauthRedirectPort() {
-  const configured = Number(process.env.TICKTICK_REDIRECT_PORT);
-  return Number.isInteger(configured) && configured >= 0
-    ? configured
-    : oauthConfig().redirectPort;
+  const raw = process.env.TICKTICK_REDIRECT_PORT;
+  // An empty value used to coerce to 0, which silently asked for a random port
+  // instead of the registered one.
+  if (raw === undefined || raw.trim() === '') return OAUTH.redirectPort;
+  const configured = Number(raw);
+  if (!Number.isInteger(configured) || configured < 0) {
+    throw new TickTickError(
+      `TICKTICK_REDIRECT_PORT must be a whole port number, not "${raw}".`,
+      { code: 'TICKTICK_INVALID_CONFIGURATION' },
+    );
+  }
+  return configured;
 }
 
-function redirectUri(port) {
-  return `http://127.0.0.1:${port}/callback`;
-}
+const redirectUri = callbackRedirectUri;
 
 function loadStoredOAuth() {
   let text;
@@ -54,22 +52,35 @@ function loadStoredOAuth() {
       code: 'TICKTICK_TOKEN_STORE',
     });
   }
+  let data;
   try {
-    const data = JSON.parse(text);
-    if (data && typeof data.access_token === 'string') return data;
-    log('Ignoring the saved OAuth token: it has no access_token. Run `ticktick-mcp login` again.');
+    data = JSON.parse(text);
   } catch (error) {
-    log(
-      `Ignoring the saved OAuth token: ${oauthFilePath()} is not valid JSON (${error.message}). Run \`ticktick-mcp login\` again.`,
+    throw new TickTickError(
+      `${oauthFilePath()} is not valid JSON (${error.message}). Run \`ticktick-mcp login\` again.`,
+      { code: 'TICKTICK_TOKEN_STORE', cause: error },
     );
   }
-  return null;
+  if (data && typeof data.access_token === 'string') return data;
+  throw new TickTickError(
+    `${oauthFilePath()} has no access_token. Run \`ticktick-mcp login\` again.`,
+    { code: 'TICKTICK_TOKEN_STORE' },
+  );
 }
 
 function saveStoredOAuth(data) {
   const file = oauthFilePath();
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+    // The mode only applies when the file is created; chmod keeps an older file tight.
+    chmodSync(file, 0o600);
+  } catch (error) {
+    throw new TickTickError(`Could not save ${file}: ${error.message}`, {
+      code: 'TICKTICK_TOKEN_STORE',
+      cause: error,
+    });
+  }
 }
 
 export function clearStoredOAuth() {
@@ -103,7 +114,7 @@ async function fetchWithTimeout(url, options, timeoutMs = 30000) {
   }
 }
 
-async function parseTokenResponse(response) {
+async function readToken(response) {
   const text = await response.text();
   if (!response.ok) {
     throw new TickTickError(
@@ -111,22 +122,7 @@ async function parseTokenResponse(response) {
       { code: 'TICKTICK_OAUTH_EXCHANGE', status: response.status },
     );
   }
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new TickTickError('TickTick returned a non-JSON token response.', {
-      code: 'TICKTICK_OAUTH_EXCHANGE',
-    });
-  }
-  if (!data.access_token) {
-    throw new TickTickError('TickTick token response did not include an access token.', {
-      code: 'TICKTICK_OAUTH_EXCHANGE',
-    });
-  }
-  const token = { ...data };
-  if (data.expires_in) token.expires_at = Date.now() + Number(data.expires_in) * 1000;
-  return token;
+  return parseTokenJson(text, response.status);
 }
 
 async function refreshStoredOAuth(stored) {
@@ -136,17 +132,18 @@ async function refreshStoredOAuth(stored) {
       { code: 'TICKTICK_AUTH_EXPIRED' },
     );
   }
-  const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: stored.refresh_token,
-    client_id: process.env.TICKTICK_OAUTH_CLIENT_ID || oauthConfig().clientId,
-  });
-  const response = await fetchWithTimeout(process.env.TICKTICK_OAUTH_TOKEN_URL || oauthConfig().tokenUrl, {
+  const body = new URLSearchParams(
+    refreshRequestBody({
+      refreshToken: stored.refresh_token,
+      clientId: process.env.TICKTICK_OAUTH_CLIENT_ID || OAUTH.clientId,
+    }),
+  );
+  const response = await fetchWithTimeout(process.env.TICKTICK_OAUTH_TOKEN_URL || OAUTH.tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   });
-  const next = await parseTokenResponse(response);
+  const next = tokenFileRecord(await readToken(response));
   const merged = { ...stored, ...next };
   saveStoredOAuth(merged);
   return merged.access_token;
@@ -243,10 +240,10 @@ h1{font-size:22px}code{background:#f2f2f2;padding:2px 5px;border-radius:5px}</st
 export async function loginWithOAuth() {
   const state = randomBytes(18).toString('base64url');
   const { verifier, challenge } = makePkce();
-  const clientId = process.env.TICKTICK_OAUTH_CLIENT_ID || oauthConfig().clientId;
-  const authorizeUrl = process.env.TICKTICK_OAUTH_AUTHORIZE_URL || oauthConfig().authorizeUrl;
-  const tokenUrl = process.env.TICKTICK_OAUTH_TOKEN_URL || oauthConfig().tokenUrl;
-  const scopes = oauthConfig().scopes.join(' ');
+  const clientId = process.env.TICKTICK_OAUTH_CLIENT_ID || OAUTH.clientId;
+  const authorizeUrl = process.env.TICKTICK_OAUTH_AUTHORIZE_URL || OAUTH.authorizeUrl;
+  const tokenUrl = process.env.TICKTICK_OAUTH_TOKEN_URL || OAUTH.tokenUrl;
+  const oauthConfigScopes = OAUTH.scopes;
   const requestedPort = oauthRedirectPort();
 
   const server = createServer();
@@ -288,20 +285,19 @@ export async function loginWithOAuth() {
         return;
       }
       try {
-        const body = new URLSearchParams({
+        const body = tokenRequestBody({
           code,
-          client_id: clientId,
-          code_verifier: verifier,
-          grant_type: 'authorization_code',
-          scope: scopes,
-          redirect_uri: redirect,
+          verifier,
+          redirectUri: redirect,
+          clientId,
+          scopes: oauthConfigScopes,
         });
         const response = await fetchWithTimeout(tokenUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString(),
+          body,
         });
-        const token = await parseTokenResponse(response);
+        const token = tokenFileRecord(await readToken(response));
         saveStoredOAuth(token);
         respond(res, 200, 'Your TickTick account is now connected.', true);
         finish(resolve, token);
@@ -329,18 +325,16 @@ export async function loginWithOAuth() {
       // Port 0 means "any free port", so the redirect URI must come from the
       // socket rather than from configuration.
       redirect = redirectUri(server.address().port);
-      const authUrl = new URL(authorizeUrl);
-      authUrl.search = new URLSearchParams({
-        client_id: clientId,
-        scope: scopes,
+      const authUrl = authorizeUrlFor({
         state,
-        redirect_uri: redirect,
-        response_type: 'code',
-        code_challenge: challenge,
-        code_challenge_method: 'S256',
-      }).toString();
-      process.stdout.write(`Open this URL to authorize TickTick:\n${authUrl.toString()}\n`);
-      openBrowser(authUrl.toString());
+        challenge,
+        redirectUri: redirect,
+        clientId,
+        authorizeUrl,
+        scopes: oauthConfigScopes,
+      });
+      process.stdout.write(`Open this URL to authorize TickTick:\n${authUrl}\n`);
+      openBrowser(authUrl);
     });
 
     timer = setTimeout(() => {

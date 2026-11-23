@@ -194,7 +194,7 @@ test('manage_tags lists and creates tags', async () => {
 
   await assert.rejects(
     () => callTool('manage_tags', { action: 'create', name: 'work', label: 'Personal' }, client),
-    (error) => error.code === 'INVALID_ARGUMENTS',
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
   );
 });
 
@@ -206,7 +206,7 @@ test('complete_task supports one task or a batch of 50', async () => {
   const tooMany = Array.from({ length: 51 }, (_, index) => `t${index}`);
   await assert.rejects(
     () => callTool('complete_task', { taskIds: tooMany }, client),
-    (error) => error.code === 'INVALID_ARGUMENTS',
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
   );
 });
 
@@ -216,12 +216,12 @@ test('unknown arguments are rejected instead of silently dropped', async () => {
     () => callTool('create_task', { projectId: 'p1', title: 'X', dueDAte: '2026-05-01' }, client),
     (error) =>
       error instanceof TickTickError &&
-      error.code === 'INVALID_ARGUMENTS' &&
+      error.code === 'TICKTICK_INVALID_ARGUMENTS' &&
       /dueDAte/.test(error.message),
   );
   await assert.rejects(
     () => callTool('list_nothing', {}, client),
-    (error) => error.code === 'UNKNOWN_TOOL',
+    (error) => error.code === 'TICKTICK_UNKNOWN_TOOL',
   );
 });
 
@@ -241,7 +241,7 @@ test('filter_tasks compares dates by instant, not by string order', async () => 
         { startDate: '2026-04-30T20:00:00+0000', endDate: '2026-05-01T00:00:00+0800' },
         client,
       ),
-    (error) => error.code === 'INVALID_ARGUMENTS',
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
   );
 });
 
@@ -251,11 +251,11 @@ test('complete_task reports completed ids for a batch and a single task', async 
   assert.deepEqual(batch, { requested: 2, completedIds: ['t1', 't2'] });
   await assert.rejects(
     () => callTool('complete_task', { taskId: 't1', taskIds: ['t2'] }, client),
-    (error) => error.code === 'INVALID_ARGUMENTS',
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
   );
   await assert.rejects(
     () => callTool('complete_task', {}, client),
-    (error) => error.code === 'INVALID_ARGUMENTS',
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
   );
   const single = await callTool('complete_task', { projectId: 'p1', taskId: 't1' }, client);
   assert.deepEqual(single, { requested: 1, completedIds: ['t1'], projectId: 'p1' });
@@ -295,18 +295,18 @@ test('declared types, limits and required keys are enforced', async () => {
   const reject = (args) =>
     assert.rejects(
       () => callTool('list_tasks', args, client),
-      (error) => error.code === 'INVALID_ARGUMENTS',
+      (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS',
     );
   await reject({ limit: '5' });
   await reject({ status: ['open'] });
   await reject({ limit: 0 });
   await assert.rejects(
     () => callTool('create_task', { projectId: 'p1' }, client),
-    (error) => error.code === 'INVALID_ARGUMENTS' && /title/.test(error.message),
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS' && /title/.test(error.message),
   );
   await assert.rejects(
     () => callTool('create_task', { projectId: 'p1', title: 'x'.repeat(501) }, client),
-    (error) => error.code === 'INVALID_ARGUMENTS' && /at most 500/.test(error.message),
+    (error) => error.code === 'TICKTICK_INVALID_ARGUMENTS' && /at most 500/.test(error.message),
   );
 });
 
@@ -337,4 +337,79 @@ test('update_task accepts repeatFrom null to clear the base', async () => {
   await callTool('update_task', { projectId: 'p1', taskId: 't1', repeatFrom: null }, client);
   const body = calls.find((call) => call.name === 'updateTask').args[1];
   assert.equal(body.repeatFrom, null);
+});
+
+test('create_task follows the configured new-task default', async () => {
+  const { client, calls } = mockClient();
+  const applied = [];
+  const now = new Date(2026, 10, 23, 9, 0);
+
+  await callTool(
+    'create_task',
+    { projectId: 'p1', title: 'Call the bank' },
+    client,
+    {
+      preferences: { taskDateDefault: 'today' },
+      now,
+      timeZone: 'Europe/Bratislava',
+      onDefaultApplied: (entry, description) => applied.push({ entry, description }),
+    },
+  );
+
+  const payload = calls.find((call) => call.name === 'createTask').args[0];
+  assert.equal(payload.dueDate, '2026-11-23T00:00:00+0000');
+  assert.equal(payload.isAllDay, true);
+  assert.equal(payload.timeZone, 'Europe/Bratislava');
+  assert.equal(applied.length, 1);
+  assert.match(applied[0].description, /due today/);
+});
+
+test('create_task keeps an explicit date whatever the default is', async () => {
+  const { client, calls } = mockClient();
+  const applied = [];
+
+  await callTool(
+    'create_task',
+    { projectId: 'p1', title: 'Tax return', dueDate: '2027-03-31', isAllDay: false },
+    client,
+    {
+      preferences: { taskDateDefault: 'today' },
+      now: new Date(2026, 10, 23, 9, 0),
+      onDefaultApplied: (entry) => applied.push(entry),
+    },
+  );
+
+  const payload = calls.find((call) => call.name === 'createTask').args[0];
+  assert.equal(payload.dueDate, '2027-03-31T00:00:00+0000');
+  assert.equal(payload.isAllDay, false);
+  assert.equal(applied.length, 0);
+});
+
+test('create_task can send an undated task to the Inbox', async () => {
+  const { client, calls } = mockClient();
+
+  await callTool(
+    'create_task',
+    { projectId: 'p1', title: 'Call the bank' },
+    client,
+    { preferences: { taskDateDefault: 'undated-to-inbox' }, now: new Date(2026, 10, 23, 9, 0) },
+  );
+
+  const payload = calls.find((call) => call.name === 'createTask').args[0];
+  assert.equal(payload.projectId, 'inbox');
+  assert.equal(payload.dueDate, undefined);
+  assert.equal(payload.isAllDay, undefined);
+});
+
+test('the new-task default never touches tools other than create_task', async () => {
+  const { client, calls } = mockClient();
+
+  await callTool('list_projects', {}, client, {
+    preferences: { taskDateDefault: 'today' },
+    now: new Date(2026, 10, 23, 9, 0),
+  });
+
+  assert.equal(calls[0].name, 'listProjects');
+  assert.equal(calls[0].args.length, 1);
+  assert.deepEqual(calls[0].args[0], { limit: 200, offset: 0 });
 });

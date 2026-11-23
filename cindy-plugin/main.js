@@ -4,7 +4,7 @@
   var DEFAULT_BASE_URL = "https://api.ticktick.com/open/v1";
   var TickTickError = class extends Error {
     constructor(message, options = {}) {
-      super(message);
+      super(message, options.cause === void 0 ? void 0 : { cause: options.cause });
       this.name = "TickTickError";
       this.code = options.code || "TICKTICK_ERROR";
       this.status = options.status;
@@ -33,7 +33,7 @@
       return text;
     }
   }
-  function apiErrorMessage(status, body) {
+  function describeHttpFailure(status, body) {
     const excerpt = typeof body === "string" ? body.slice(0, 300) : JSON.stringify(body || "").slice(0, 300);
     if (status === 401 || status === 403) {
       return `TickTick rejected the authorization (HTTP ${status}). Check that the connection or token is still valid and belongs to the intended account, then reconnect if needed.`;
@@ -78,8 +78,13 @@
       const text = typeof response.text === "string" ? response.text : "";
       const data = parseBody(text);
       const status = Number(response.status || 0);
+      if (!status) {
+        throw new TickTickError("The transport returned no HTTP status for the request.", {
+          code: "TICKTICK_NETWORK"
+        });
+      }
       if (status < 200 || status >= 300) {
-        throw new TickTickError(apiErrorMessage(status, data), {
+        throw new TickTickError(describeHttpFailure(status, data), {
           code: status === 401 || status === 403 ? "TICKTICK_AUTH" : "TICKTICK_HTTP",
           status,
           body: data
@@ -181,7 +186,7 @@
     if (!/^\d{4}-\d{2}-\d{2}(?:[T ].+)?$/.test(input)) {
       throw new TickTickError(
         `Invalid ${field}: "${input}". Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss+HHMM.`,
-        { code: "INVALID_ARGUMENTS" }
+        { code: "TICKTICK_INVALID_ARGUMENTS" }
       );
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
@@ -194,7 +199,7 @@
     if (Number.isNaN(Date.parse(output))) {
       throw new TickTickError(
         `Invalid ${field}: "${input}". Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss+HHMM.`,
-        { code: "INVALID_ARGUMENTS" }
+        { code: "TICKTICK_INVALID_ARGUMENTS" }
       );
     }
     return output;
@@ -210,13 +215,13 @@
     if (value === null || value === "") return 0;
     if (typeof value === "string") {
       const key = value.trim().toLowerCase();
-      if (key in PRIORITIES) return PRIORITIES[key];
+      if (Object.prototype.hasOwnProperty.call(PRIORITIES, key)) return PRIORITIES[key];
     }
     const number = Number(value);
     if ([0, 1, 3, 5].includes(number)) return number;
     throw new TickTickError(
       `Invalid ${field}: ${JSON.stringify(value)}. Use 0, 1, 3, 5 or none/low/medium/high.`,
-      { code: "INVALID_ARGUMENTS" }
+      { code: "TICKTICK_INVALID_ARGUMENTS" }
     );
   }
   function normalizeStatus(value) {
@@ -230,8 +235,60 @@
     }
     throw new TickTickError(
       'Invalid status. Use "open", "completed", "all", or an array containing -1, 0 or 2.',
-      { code: "INVALID_ARGUMENTS" }
+      { code: "TICKTICK_INVALID_ARGUMENTS" }
     );
+  }
+
+  // src/preferences.mjs
+  var TASK_DATE_DEFAULTS = Object.freeze(["explicit", "today", "undated-to-inbox"]);
+  var DEFAULT_PREFERENCES = Object.freeze({ taskDateDefault: "explicit" });
+  function normalizePreferences(raw) {
+    const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const mode = TASK_DATE_DEFAULTS.includes(source.taskDateDefault) ? source.taskDateDefault : DEFAULT_PREFERENCES.taskDateDefault;
+    return { taskDateDefault: mode };
+  }
+  function localDateStamp(now = /* @__PURE__ */ new Date()) {
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+  function resolveLocalTimeZone() {
+    try {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return typeof zone === "string" && zone.length > 0 ? zone : null;
+    } catch {
+      return null;
+    }
+  }
+  function hasDate(args, field) {
+    return args[field] !== void 0 && args[field] !== null && args[field] !== "";
+  }
+  function applyCreateDefaults(args, preferences, options = {}) {
+    const { taskDateDefault: mode } = normalizePreferences(preferences);
+    if (mode === "explicit") return { args, applied: null };
+    if (hasDate(args, "dueDate") || hasDate(args, "startDate")) return { args, applied: null };
+    if (mode === "undated-to-inbox") {
+      if (args.projectId === "inbox") return { args, applied: null };
+      return {
+        args: { ...args, projectId: "inbox" },
+        applied: { mode, projectId: "inbox" }
+      };
+    }
+    const dueDate = localDateStamp(options.now ?? /* @__PURE__ */ new Date());
+    const timeZone = (typeof args.timeZone === "string" && args.timeZone ? args.timeZone : void 0) ?? (Object.prototype.hasOwnProperty.call(options, "timeZone") ? options.timeZone : resolveLocalTimeZone());
+    return {
+      args: {
+        ...args,
+        dueDate,
+        isAllDay: true,
+        ...timeZone ? { timeZone } : {}
+      },
+      applied: { mode, dueDate, isAllDay: true }
+    };
+  }
+  function describeAppliedDefault(applied) {
+    if (!applied) return null;
+    if (applied.mode === "undated-to-inbox") return "undated tasks go to the Inbox";
+    return `undated tasks are due today (${applied.dueDate}), all day`;
   }
 
   // src/tools.mjs
@@ -306,7 +363,7 @@
     const value = args[key];
     if (typeof value !== "string" || !value.trim()) {
       throw new TickTickError(`Missing or invalid ${label}. Provide a non-empty string.`, {
-        code: "INVALID_ARGUMENTS"
+        code: "TICKTICK_INVALID_ARGUMENTS"
       });
     }
     return value.trim();
@@ -315,14 +372,14 @@
     if (args[key] === void 0) return void 0;
     if (args[key] === null) return null;
     if (typeof args[key] !== "string") {
-      throw new TickTickError(`${key} must be a string.`, { code: "INVALID_ARGUMENTS" });
+      throw new TickTickError(`${key} must be a string.`, { code: "TICKTICK_INVALID_ARGUMENTS" });
     }
     return args[key];
   }
   function optionalBoolean(args, key) {
     if (args[key] === void 0) return void 0;
     if (typeof args[key] !== "boolean") {
-      throw new TickTickError(`${key} must be true or false.`, { code: "INVALID_ARGUMENTS" });
+      throw new TickTickError(`${key} must be true or false.`, { code: "TICKTICK_INVALID_ARGUMENTS" });
     }
     return args[key];
   }
@@ -331,7 +388,7 @@
     const value = Number(args[key]);
     if (!Number.isInteger(value) || value < min || value > max) {
       throw new TickTickError(`${key} must be an integer from ${min} to ${max}.`, {
-        code: "INVALID_ARGUMENTS"
+        code: "TICKTICK_INVALID_ARGUMENTS"
       });
     }
     return value;
@@ -339,7 +396,7 @@
   function requireInteger(value, field) {
     const number = Number(value);
     if (!Number.isSafeInteger(number)) {
-      throw new TickTickError(`${field} must be an integer.`, { code: "INVALID_ARGUMENTS" });
+      throw new TickTickError(`${field} must be an integer.`, { code: "TICKTICK_INVALID_ARGUMENTS" });
     }
     return number;
   }
@@ -348,18 +405,18 @@
     if (value === null) return [];
     if (!Array.isArray(value) || value.length > max) {
       throw new TickTickError(`${field} must be an array with at most ${max} strings.`, {
-        code: "INVALID_ARGUMENTS"
+        code: "TICKTICK_INVALID_ARGUMENTS"
       });
     }
     if (!allowEmpty && value.length === 0) {
       throw new TickTickError(`${field} must contain at least one item.`, {
-        code: "INVALID_ARGUMENTS"
+        code: "TICKTICK_INVALID_ARGUMENTS"
       });
     }
     const result = value.map((item) => {
       if (typeof item !== "string" || !item.trim()) {
         throw new TickTickError(`${field} must contain non-empty strings.`, {
-          code: "INVALID_ARGUMENTS"
+          code: "TICKTICK_INVALID_ARGUMENTS"
         });
       }
       return item.trim();
@@ -463,12 +520,12 @@
     if (value === void 0) return void 0;
     if (value === null) return null;
     if (!Array.isArray(value)) {
-      throw new TickTickError("items must be an array or null.", { code: "INVALID_ARGUMENTS" });
+      throw new TickTickError("items must be an array or null.", { code: "TICKTICK_INVALID_ARGUMENTS" });
     }
     return value.map((item, index) => {
       if (!item || typeof item !== "object") {
         throw new TickTickError(`items[${index}] must be an object.`, {
-          code: "INVALID_ARGUMENTS"
+          code: "TICKTICK_INVALID_ARGUMENTS"
         });
       }
       const out = {};
@@ -476,7 +533,7 @@
       if (item.title !== void 0) {
         if (typeof item.title !== "string" || !item.title.trim()) {
           throw new TickTickError(`items[${index}].title must be a non-empty string.`, {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         out.title = item.title.trim();
@@ -485,7 +542,7 @@
         const status = Number(item.status);
         if (status !== 0 && status !== 1) {
           throw new TickTickError(`items[${index}].status must be 0 or 1.`, {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         out.status = status;
@@ -497,7 +554,7 @@
       if (item.isAllDay !== void 0) {
         if (typeof item.isAllDay !== "boolean") {
           throw new TickTickError(`items[${index}].isAllDay must be true or false.`, {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         out.isAllDay = item.isAllDay;
@@ -512,7 +569,7 @@
     const title = optionalString(args, "title");
     if (title !== void 0) {
       if (title === null || !title.trim()) {
-        throw new TickTickError("title cannot be empty.", { code: "INVALID_ARGUMENTS" });
+        throw new TickTickError("title cannot be empty.", { code: "TICKTICK_INVALID_ARGUMENTS" });
       }
       payload.title = title.trim();
     }
@@ -537,7 +594,7 @@
         const repeatFrom = String(args.repeatFrom);
         if (!["0", "1", "2"].includes(repeatFrom)) {
           throw new TickTickError('repeatFrom must be "0", "1" or "2".', {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         payload.repeatFrom = repeatFrom;
@@ -553,7 +610,7 @@
   function normalizePriorityList(value) {
     if (value === void 0) return void 0;
     if (!Array.isArray(value) || value.length === 0) {
-      throw new TickTickError("priority must be a non-empty array.", { code: "INVALID_ARGUMENTS" });
+      throw new TickTickError("priority must be a non-empty array.", { code: "TICKTICK_INVALID_ARGUMENTS" });
     }
     return value.map((item) => normalizePriority(item));
   }
@@ -633,29 +690,31 @@
       handler: async (client, args) => {
         const projectId = requireString(args, "projectId");
         const includeTasks = optionalBoolean(args, "includeTasks") ?? true;
-        if (projectId === "inbox") {
-          const tasks = includeTasks ? await client.filterTasks({ projectIds: ["inbox"], status: [0] }) || [] : null;
+        const isInbox = projectId === "inbox";
+        if (!includeTasks) {
+          return {
+            project: isInbox ? { ...INBOX_PROJECT } : compactProject(await client.getProject(projectId)),
+            count: null,
+            tasks: null,
+            columns: null
+          };
+        }
+        if (isInbox) {
+          const tasks2 = await client.filterTasks({ projectIds: ["inbox"], status: [0] }) || [];
           return {
             project: { ...INBOX_PROJECT },
-            count: tasks ? tasks.length : null,
-            tasks: tasks ? tasks.map(compactTask) : null,
-            columns: tasks ? [] : null
+            count: tasks2.length,
+            tasks: tasks2.map(compactTask),
+            columns: []
           };
         }
-        if (includeTasks) {
-          const data = await client.getProjectData(projectId);
-          return {
-            project: compactProject(data?.project),
-            count: Array.isArray(data?.tasks) ? data.tasks.length : 0,
-            tasks: (data?.tasks || []).map(compactTask),
-            columns: data?.columns || []
-          };
-        }
+        const data = await client.getProjectData(projectId);
+        const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
         return {
-          project: compactProject(await client.getProject(projectId)),
-          count: null,
-          tasks: null,
-          columns: null
+          project: compactProject(data?.project),
+          count: tasks.length,
+          tasks: tasks.map(compactTask),
+          columns: data?.columns || []
         };
       }
     },
@@ -702,7 +761,7 @@
         const patch = projectFields(args);
         if (Object.keys(patch).length === 0) {
           throw new TickTickError("Provide at least one project field to update.", {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         return { project: compactProject(await client.updateProject(projectId, patch)) };
@@ -789,7 +848,7 @@
         const end = body.endDate ? Date.parse(body.endDate) : null;
         if (start !== null && end !== null && start > end) {
           throw new TickTickError("startDate must be on or before endDate.", {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         const limit = optionalInteger(args, "limit", 1, 200) ?? 100;
@@ -819,7 +878,7 @@
       handler: async (client, args) => {
         const body = { keywords: requireString(args, "keywords", "search keywords") };
         if (args.projectIds !== void 0) body.projectIds = normalizeStringArray(args.projectIds, "projectIds");
-        if (args.tags !== void 0) body.tags = normalizeStringArray(args.tags, "tags");
+        if (args.tags !== void 0) body.tag = normalizeStringArray(args.tags, "tags");
         body.status = normalizeStatus(args.status);
         for (const field of ["dueFrom", "dueTo"]) {
           if (args[field] !== void 0) body[field] = normalizeDate(args[field], field);
@@ -830,10 +889,13 @@
         let searchMode = "api";
         if (tasks.length === 0) {
           searchMode = "local";
-          const filters = bodyFromFilters(args);
-          delete filters.startDate;
-          delete filters.endDate;
-          const candidates = await client.filterTasks(filters);
+          const candidates = await client.filterTasks({
+            ...body.projectIds ? { projectIds: body.projectIds } : {},
+            ...body.tag ? { tag: body.tag } : {},
+            status: body.status,
+            ...body.dueFrom ? { dueFrom: body.dueFrom } : {},
+            ...body.dueTo ? { dueTo: body.dueTo } : {}
+          });
           const needle = body.keywords.toLocaleLowerCase();
           const from = body.dueFrom ? Date.parse(body.dueFrom) : null;
           const to = body.dueTo ? Date.parse(body.dueTo) : null;
@@ -941,13 +1003,13 @@
         if (current.projectId && current.projectId !== projectId) {
           throw new TickTickError(
             "The task belongs to a different project. Use move_tasks instead of update_task to move it.",
-            { code: "INVALID_ARGUMENTS" }
+            { code: "TICKTICK_INVALID_ARGUMENTS" }
           );
         }
         const patch = buildTaskFields(args);
         if (Object.keys(patch).length === 0) {
           throw new TickTickError("Provide at least one task field to update.", {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         const merged = { ...current, ...patch, id: taskId, projectId };
@@ -982,7 +1044,7 @@
         if (args.taskIds !== void 0) {
           if (args.taskId !== void 0) {
             throw new TickTickError("Pass either taskId or taskIds, not both.", {
-              code: "INVALID_ARGUMENTS"
+              code: "TICKTICK_INVALID_ARGUMENTS"
             });
           }
           const taskIds = normalizeStringArray(args.taskIds, "taskIds", { max: 50, allowEmpty: false });
@@ -1047,7 +1109,7 @@
         const toProjectId = requireString(args, "toProjectId");
         if (fromProjectId === toProjectId) {
           throw new TickTickError("fromProjectId and toProjectId must be different.", {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         const taskIds = normalizeStringArray(args.taskIds, "taskIds", { max: 50, allowEmpty: false });
@@ -1093,14 +1155,14 @@
         }
         if (args.action !== "create") {
           throw new TickTickError('action must be "list" or "create".', {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         const name = requireString(args, "name", "tag name").toLowerCase();
         const label = (optionalString(args, "label") || name).trim();
         if (label.toLowerCase() !== name) {
           throw new TickTickError("label must match name when lowercased.", {
-            code: "INVALID_ARGUMENTS"
+            code: "TICKTICK_INVALID_ARGUMENTS"
           });
         }
         return { tag: compactTag(await client.createTag({ name, label })) };
@@ -1109,7 +1171,7 @@
     {
       name: "manage_comments",
       description: 'List, add or delete comments on a TickTick task. Use action "list", "add" with content, or "delete" with commentId and confirm:true.',
-      annotations: destructive,
+      annotations: writeOnly,
       parameters: {
         type: "object",
         properties: {
@@ -1155,7 +1217,7 @@
           return { deleted: true, projectId, taskId, commentId };
         }
         throw new TickTickError('action must be "list", "add" or "delete".', {
-          code: "INVALID_ARGUMENTS"
+          code: "TICKTICK_INVALID_ARGUMENTS"
         });
       }
     }
@@ -1171,20 +1233,22 @@
     null: (value) => value === null
   };
   function schemaError(path, message) {
-    return new TickTickError(`${path || "arguments"} ${message}`, { code: "INVALID_ARGUMENTS" });
+    return new TickTickError(`${path || "arguments"} ${message}`, { code: "TICKTICK_INVALID_ARGUMENTS" });
   }
   function validateAgainst(schema, value, path) {
     if (!schema || typeof schema !== "object") return;
     if (Array.isArray(schema.oneOf)) {
-      const matched = schema.oneOf.some((option) => {
+      const matches = schema.oneOf.filter((option) => {
         try {
           validateAgainst(option, value, path);
           return true;
         } catch {
           return false;
         }
-      });
-      if (!matched) throw schemaError(path, "does not match any of the allowed shapes.");
+      }).length;
+      if (matches !== 1) {
+        throw schemaError(path, `must match exactly one of the allowed shapes (${matches} matched).`);
+      }
       return;
     }
     if (Array.isArray(schema.anyOf)) {
@@ -1255,21 +1319,349 @@
       }
     }
   }
-  async function callTool(name, args, client) {
+  async function callTool(name, args, client, options = {}) {
     const tool = TOOLS_BY_NAME.get(name);
     if (!tool) {
-      throw new TickTickError(`Unknown TickTick tool: ${name}`, { code: "UNKNOWN_TOOL" });
+      throw new TickTickError(`Unknown TickTick tool: ${name}`, { code: "TICKTICK_UNKNOWN_TOOL" });
     }
     if (!args || typeof args !== "object" || Array.isArray(args)) {
       throw new TickTickError("Tool arguments must be a JSON object.", {
-        code: "INVALID_ARGUMENTS"
+        code: "TICKTICK_INVALID_ARGUMENTS"
       });
     }
-    validateAgainst(tool.parameters, args, "");
-    return tool.handler(client, args);
+    let prepared = args;
+    let applied = null;
+    if (name === "create_task") {
+      const preparedCall = applyCreateDefaults(args, options.preferences, {
+        now: options.now,
+        timeZone: options.timeZone
+      });
+      prepared = preparedCall.args;
+      applied = preparedCall.applied;
+      if (applied && typeof options.onDefaultApplied === "function") {
+        options.onDefaultApplied(applied, describeAppliedDefault(applied));
+      }
+    }
+    validateAgainst(tool.parameters, prepared, "");
+    return tool.handler(client, prepared);
+  }
+
+  // src/oauth-config.mjs
+  var OAUTH = {
+    authorizeUrl: "https://ticktick.com/oauth/authorize",
+    tokenUrl: "https://api.ticktick.com/oauth/token",
+    // The Cindy plugin exchanges the code *before* it has a credential, and the
+    // host refuses to send any request to an injected host while that credential
+    // is missing. TickTick answers the token endpoint on both hostnames from the
+    // same backend, so the plugin uses the one it does not inject into.
+    cindyTokenUrl: "https://ticktick.com/oauth/token",
+    clientId: "4OO7Zzir01YsqCXfo6",
+    scopes: ["tasks:read", "tasks:write"],
+    redirectPort: 53682
+  };
+
+  // src/oauth-protocol.mjs
+  function callbackRedirectUri(port = OAUTH.redirectPort) {
+    return `http://127.0.0.1:${port}/callback`;
+  }
+  function authorizeUrlFor({ state, challenge, redirectUri, clientId, authorizeUrl, scopes }) {
+    const url = new URL(authorizeUrl || OAUTH.authorizeUrl);
+    url.search = new URLSearchParams({
+      client_id: clientId || OAUTH.clientId,
+      scope: (scopes || OAUTH.scopes).join(" "),
+      state,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      code_challenge: challenge,
+      code_challenge_method: "S256"
+    }).toString();
+    return url.toString();
+  }
+  function tokenRequestBody({ code, verifier, redirectUri, clientId, scopes }) {
+    return new URLSearchParams({
+      code,
+      client_id: clientId || OAUTH.clientId,
+      code_verifier: verifier,
+      grant_type: "authorization_code",
+      scope: (scopes || OAUTH.scopes).join(" "),
+      redirect_uri: redirectUri
+    }).toString();
+  }
+  function parseTokenJson(text, status = 200) {
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new TickTickError("TickTick returned a non-JSON token response.", {
+        code: "TICKTICK_OAUTH_EXCHANGE",
+        status
+      });
+    }
+    if (!data || typeof data.access_token !== "string" || !data.access_token) {
+      throw new TickTickError("TickTick did not return an access token.", {
+        code: "TICKTICK_OAUTH_EXCHANGE",
+        status
+      });
+    }
+    const expiresIn = Number(data.expires_in);
+    return {
+      accessToken: data.access_token,
+      refreshToken: typeof data.refresh_token === "string" && data.refresh_token ? data.refresh_token : null,
+      // TickTick issues a long-lived access token and no refresh token, so the
+      // expiry is what tells the user when to connect again.
+      expiresAt: Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1e3 : null,
+      scope: typeof data.scope === "string" ? data.scope : null
+    };
+  }
+
+  // src/cindy-auth.mjs
+  var AUTHORIZE_URL = OAUTH.authorizeUrl;
+  var TOKEN_URL = OAUTH.cindyTokenUrl;
+  var CLIENT_ID = OAUTH.clientId;
+  var SCOPES = OAUTH.scopes;
+  var REDIRECT_URI = callbackRedirectUri(OAUTH.redirectPort);
+  var CHANNEL_NAME = "ticktick-connector";
+  var BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  var SHA256_K = [
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ];
+  function rotateRight(value, bits) {
+    return value >>> bits | value << 32 - bits;
+  }
+  function sha256Bytes(text) {
+    const bytes = [];
+    for (let index = 0; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      if (code > 127) {
+        throw new TickTickError("The PKCE verifier must be ASCII.", { code: "TICKTICK_OAUTH_CONFIG" });
+      }
+      bytes.push(code);
+    }
+    const bitLength = bytes.length * 8;
+    bytes.push(128);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    for (let shift = 56; shift >= 0; shift -= 8) {
+      bytes.push(bitLength / 2 ** shift % 256 >>> 0);
+    }
+    const hash = [
+      1779033703,
+      3144134277,
+      1013904242,
+      2773480762,
+      1359893119,
+      2600822924,
+      528734635,
+      1541459225
+    ];
+    for (let offset = 0; offset < bytes.length; offset += 64) {
+      const words = new Array(64).fill(0);
+      for (let index = 0; index < 16; index += 1) {
+        const start = offset + index * 4;
+        words[index] = (bytes[start] << 24 | bytes[start + 1] << 16 | bytes[start + 2] << 8 | bytes[start + 3]) >>> 0;
+      }
+      for (let index = 16; index < 64; index += 1) {
+        const s0 = rotateRight(words[index - 15], 7) ^ rotateRight(words[index - 15], 18) ^ words[index - 15] >>> 3;
+        const s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ words[index - 2] >>> 10;
+        words[index] = words[index - 16] + s0 + words[index - 7] + s1 >>> 0;
+      }
+      let [a, b, c, d, e, f, g, h] = hash;
+      for (let index = 0; index < 64; index += 1) {
+        const s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+        const choice = e & f ^ ~e & g;
+        const temp1 = h + s1 + choice + SHA256_K[index] + words[index] >>> 0;
+        const s0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+        const majority = a & b ^ a & c ^ b & c;
+        const temp2 = s0 + majority >>> 0;
+        h = g;
+        g = f;
+        f = e;
+        e = d + temp1 >>> 0;
+        d = c;
+        c = b;
+        b = a;
+        a = temp1 + temp2 >>> 0;
+      }
+      hash[0] = hash[0] + a >>> 0;
+      hash[1] = hash[1] + b >>> 0;
+      hash[2] = hash[2] + c >>> 0;
+      hash[3] = hash[3] + d >>> 0;
+      hash[4] = hash[4] + e >>> 0;
+      hash[5] = hash[5] + f >>> 0;
+      hash[6] = hash[6] + g >>> 0;
+      hash[7] = hash[7] + h >>> 0;
+    }
+    const digest = [];
+    for (const word of hash) {
+      digest.push(word >>> 24 & 255, word >>> 16 & 255, word >>> 8 & 255, word & 255);
+    }
+    return digest;
+  }
+  function base64urlFromBytes(bytes) {
+    let output = "";
+    for (let index = 0; index < bytes.length; index += 3) {
+      const first = bytes[index];
+      const second = index + 1 < bytes.length ? bytes[index + 1] : null;
+      const third = index + 2 < bytes.length ? bytes[index + 2] : null;
+      const triple = first << 16 | (second ?? 0) << 8 | (third ?? 0);
+      output += BASE64URL_ALPHABET[triple >>> 18 & 63];
+      output += BASE64URL_ALPHABET[triple >>> 12 & 63];
+      if (second === null) break;
+      output += BASE64URL_ALPHABET[triple >>> 6 & 63];
+      if (third === null) break;
+      output += BASE64URL_ALPHABET[triple & 63];
+    }
+    return output;
+  }
+  function base64urlSha256(text) {
+    return base64urlFromBytes(sha256Bytes(text));
+  }
+  function randomToken(length) {
+    const source = globalThis.crypto;
+    if (!source?.getRandomValues) {
+      throw new TickTickError(
+        "This Cindy build cannot generate secure random bytes, so TickTick sign-in cannot start. Update Cindy and try again.",
+        { code: "TICKTICK_NO_CRYPTO" }
+      );
+    }
+    const bytes = new Uint8Array(length);
+    source.getRandomValues(bytes);
+    return base64urlFromBytes(bytes);
+  }
+  function createPkce() {
+    const verifier = randomToken(32);
+    return { verifier, challenge: base64urlSha256(verifier) };
+  }
+  function buildAuthorizeUrl({ state, challenge }) {
+    return authorizeUrlFor({
+      state,
+      challenge,
+      redirectUri: REDIRECT_URI,
+      clientId: CLIENT_ID,
+      authorizeUrl: AUTHORIZE_URL,
+      scopes: SCOPES
+    });
+  }
+  function buildTokenRequestBody({ code, verifier }) {
+    return tokenRequestBody({
+      code,
+      verifier,
+      redirectUri: REDIRECT_URI,
+      clientId: CLIENT_ID,
+      scopes: SCOPES
+    });
+  }
+  function invalidCallback(message) {
+    return new TickTickError(message, { code: "TICKTICK_OAUTH_CALLBACK" });
+  }
+  function parseCallbackInput(input, expectedState) {
+    const raw = String(input ?? "").trim();
+    if (!raw) throw invalidCallback("Paste the address of the page that failed to load, then try again.");
+    if (!expectedState) {
+      throw new TickTickError("No sign-in is open, so a callback cannot be checked. Start the sign-in again.", {
+        code: "TICKTICK_OAUTH_STATE"
+      });
+    }
+    let params;
+    if (/^https?:\/\//i.test(raw)) {
+      let url;
+      try {
+        url = new URL(raw);
+      } catch {
+        throw invalidCallback("That address could not be read. Copy the whole address from the browser.");
+      }
+      params = url.searchParams;
+    } else {
+      if (/^[^=&\s]+$/.test(raw)) {
+        throw invalidCallback(
+          "That is only the code. Copy the whole address from the browser so the sign-in can be checked."
+        );
+      }
+      params = new URLSearchParams(raw.startsWith("?") ? raw.slice(1) : raw);
+    }
+    const error = params.get("error");
+    if (error) {
+      throw new TickTickError(
+        `TickTick refused the authorization: ${params.get("error_description") || error}`,
+        { code: "TICKTICK_OAUTH_DENIED" }
+      );
+    }
+    const state = params.get("state");
+    if (state !== expectedState) {
+      throw invalidCallback("This address does not belong to the sign-in that is open. Open the link again.");
+    }
+    const code = params.get("code");
+    if (!code) throw invalidCallback("That address has no TickTick authorization code. Copy it from the browser again.");
+    return { code };
   }
 
   // src/cindy-entry.mjs
+  var PENDING_TTL_MS = 15 * 60 * 1e3;
+  var PREFERENCES_URL = "/kv";
+  var NOT_CONNECTED_MESSAGE = "TickTick is not connected yet. Connect the account in the plugin details (TickTick \u2192 Save connection), then try again.";
+  var pending = null;
   function cindyTransport(callId) {
     return async ({ url, method, headers, body }) => {
       const response = await cindy.fetch({
@@ -1282,8 +1674,11 @@
       });
       const status = Number(response.status || 0);
       if (!status) {
+        if (!response.errorCode) {
+          throw new TickTickError(NOT_CONNECTED_MESSAGE, { code: "TICKTICK_NOT_CONNECTED" });
+        }
         throw new TickTickError(response.message || "Cindy could not reach TickTick.", {
-          code: response.errorCode || "TICKTICK_NETWORK"
+          code: response.errorCode
         });
       }
       if (response.truncated) {
@@ -1298,11 +1693,104 @@
       };
     };
   }
+  var loggedDefault = null;
+  async function readPreferences() {
+    if (typeof fetch !== "function") {
+      return { preferences: DEFAULT_PREFERENCES, source: "unavailable" };
+    }
+    try {
+      const response = await fetch(PREFERENCES_URL, { cache: "no-store" });
+      if (!response.ok) {
+        return { preferences: DEFAULT_PREFERENCES, source: `kv ${response.status}` };
+      }
+      return { preferences: normalizePreferences(await response.json()), source: "kv" };
+    } catch (error) {
+      console.warn(`[ticktick] could not read plugin settings: ${error?.message || error}`);
+      return { preferences: DEFAULT_PREFERENCES, source: "error" };
+    }
+  }
+  function noteNewTaskDefault(preferences, source) {
+    const mode = preferences.taskDateDefault;
+    if (mode === loggedDefault) return;
+    loggedDefault = mode;
+    console.log(`[ticktick] new-task default: ${mode} (${source})`);
+  }
+  function startAuthorization() {
+    const { verifier, challenge } = createPkce();
+    const state = randomToken(18);
+    pending = { verifier, state, createdAt: Date.now() };
+    return { url: buildAuthorizeUrl({ state, challenge }) };
+  }
+  async function exchangeCode(callbackUrl) {
+    const active = pending;
+    pending = null;
+    if (!active) {
+      throw new TickTickError(
+        "This sign-in is not active any more. Open the TickTick sign-in link again from the plugin settings.",
+        { code: "TICKTICK_OAUTH_STATE" }
+      );
+    }
+    if (Date.now() - active.createdAt > PENDING_TTL_MS) {
+      throw new TickTickError("The sign-in expired. Open the TickTick sign-in link again.", {
+        code: "TICKTICK_OAUTH_TIMEOUT"
+      });
+    }
+    const { code } = parseCallbackInput(callbackUrl, active.state);
+    const body = buildTokenRequestBody({ code, verifier: active.verifier });
+    const response = await cindy.fetch({
+      url: TOKEN_URL,
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body,
+      timeoutMs: 3e4
+    });
+    const status = Number(response.status || 0);
+    if (!status) {
+      throw new TickTickError(response.message || "Cindy could not reach TickTick.", {
+        code: response.errorCode || "TICKTICK_NETWORK"
+      });
+    }
+    if (status < 200 || status >= 300) {
+      throw new TickTickError(
+        `TickTick rejected the authorization code (HTTP ${status}): ${String(response.body || "").slice(0, 200)}`,
+        { code: "TICKTICK_OAUTH_EXCHANGE", status }
+      );
+    }
+    return parseTokenJson(response.body, status);
+  }
+  async function verifyStoredToken() {
+    try {
+      await createClient({ transport: cindyTransport(void 0) }).listProjects({ limit: 1 });
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof TickTickError && error.code === "TICKTICK_AUTH") {
+        return { ok: false, message: `${error.message} Connect the account again.` };
+      }
+      return { ok: false, message: describeError(error) };
+    }
+  }
+  function authFailure(error) {
+    return {
+      type: "tt-auth-error",
+      code: error instanceof TickTickError ? error.code : "TICKTICK_OAUTH",
+      message: describeError(error)
+    };
+  }
   cindy.onHostMessage(async (msg) => {
     if (msg.type !== "tool-call") return;
     try {
       const client = createClient({ transport: cindyTransport(msg.callId) });
-      const result = await callTool(msg.tool, msg.args || {}, client);
+      const { preferences, source } = await readPreferences();
+      noteNewTaskDefault(preferences, source);
+      const result = await callTool(msg.tool, msg.args || {}, client, {
+        preferences,
+        onDefaultApplied: (applied, description) => {
+          console.log(`[ticktick] applied default: ${description}`);
+        }
+      });
       await cindy.send({
         type: "tool-result",
         callId: msg.callId,
@@ -1319,4 +1807,54 @@
       });
     }
   });
+  if (typeof BroadcastChannel === "function") {
+    const channel = new BroadcastChannel(CHANNEL_NAME);
+    if (typeof channel.unref === "function") channel.unref();
+    channel.addEventListener("message", async (event) => {
+      const message = event.data;
+      if (!message || typeof message.type !== "string") return;
+      if (message.type === "tt-auth-start") {
+        try {
+          channel.postMessage({ type: "tt-auth-url", ...startAuthorization() });
+        } catch (error) {
+          channel.postMessage(authFailure(error));
+        }
+        return;
+      }
+      if (message.type === "tt-auth-finish") {
+        try {
+          const token = await exchangeCode(message.callbackUrl);
+          channel.postMessage({
+            type: "tt-auth-token",
+            token: token.accessToken,
+            expiresAt: token.expiresAt,
+            scope: token.scope
+          });
+        } catch (error) {
+          channel.postMessage(authFailure(error));
+        }
+        return;
+      }
+      if (message.type === "tt-auth-cancel") {
+        pending = null;
+        return;
+      }
+      if (message.type === "tt-verify") {
+        try {
+          channel.postMessage({ type: "tt-verify-result", ...await verifyStoredToken() });
+        } catch (error) {
+          channel.postMessage({ type: "tt-verify-result", ok: false, message: describeError(error) });
+        }
+        return;
+      }
+      if (message.type === "tt-prefs-get") {
+        const { preferences, source } = await readPreferences();
+        channel.postMessage({ type: "tt-prefs", taskDateDefault: preferences.taskDateDefault, source });
+        return;
+      }
+      if (message.type === "tt-ping") {
+        channel.postMessage({ type: "tt-pong" });
+      }
+    });
+  }
 })();

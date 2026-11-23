@@ -5,10 +5,10 @@ Manage TickTick tasks, projects, tags and comments without leaving Cindy.
 ## Setup
 
 1. Open this plugin’s settings in Cindy.
-2. Click **Connect TickTick**.
-3. Sign in to TickTick in the browser and approve access.
+2. Open the TickTick sign-in link and approve access in the browser.
+3. The browser then lands on `127.0.0.1` and shows an error. That is expected: copy the whole address and paste it into the plugin settings, then save.
 
-No API token needs to be copied. Cindy stores the OAuth token in its encrypted vault and refreshes it automatically.
+No API token needs to be copied by hand and nothing expires at restart. The plugin exchanges the authorization code itself and stores the access token in Cindy’s encrypted vault, which injects it into each request. TickTick issues no refresh token, so the settings page shows when the token expires (about 180 days) and asks for a new sign-in once it passes.
 
 ## Try it
 

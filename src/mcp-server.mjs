@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
-import { createClient, detectApiBase, describeError, TickTickError } from './core.mjs';
+import { createClient, resolveApiBase, describeError, TickTickError } from './core.mjs';
 import { clearStoredOAuth, loginWithOAuth, oauthFilePath, resolveAccessToken } from './auth.mjs';
 import { manifest } from './manifest.mjs';
 import { callTool, mcpTools } from './tools.mjs';
@@ -46,13 +46,13 @@ function nativeTransport(token, timeoutMs) {
   };
 }
 
+const MISSING_TOKEN_MESSAGE =
+  'No TickTick authorization is configured. Run `ticktick-mcp login` to sign in with OAuth, or set TICKTICK_API_TOKEN.';
+
 async function makeClient() {
   const token = await resolveAccessToken();
   if (!token) {
-    throw new TickTickError(
-      'No TickTick authorization is configured. Run `ticktick-mcp login` to sign in with OAuth, or set TICKTICK_API_TOKEN.',
-      { code: 'TICKTICK_TOKEN_MISSING' },
-    );
+    throw new TickTickError(MISSING_TOKEN_MESSAGE, { code: 'TICKTICK_TOKEN_MISSING' });
   }
   const timeoutMs = Math.max(
     1000,
@@ -60,7 +60,7 @@ async function makeClient() {
   );
   return createClient({
     transport: nativeTransport(token, timeoutMs),
-    baseUrl: detectApiBase(process.env.TICKTICK_API_BASE),
+    baseUrl: resolveApiBase(process.env.TICKTICK_API_BASE),
   });
 }
 
@@ -76,9 +76,6 @@ function replyError(id, code, message) {
   write({ jsonrpc: '2.0', id, error: { code, message } });
 }
 
-function toolList() {
-  return mcpTools();
-}
 
 function textResult(value) {
   return {
@@ -121,7 +118,7 @@ async function handleRequest(message) {
       return reply(id, {});
 
     case 'tools/list':
-      return reply(id, { tools: toolList() });
+      return reply(id, { tools: mcpTools() });
 
     case 'tools/call': {
       const name = params?.name;
@@ -190,9 +187,7 @@ function handleLine(line) {
 export async function runServer() {
   try {
     const token = await resolveAccessToken();
-    if (!token) {
-      log('No TickTick authorization configured yet. Run `ticktick-mcp login` or set TICKTICK_API_TOKEN.');
-    }
+    if (!token) log(MISSING_TOKEN_MESSAGE);
   } catch (error) {
     log(`TickTick authorization could not be refreshed: ${describeError(error)}`);
   }

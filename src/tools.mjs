@@ -5,6 +5,7 @@ import {
   normalizePriority,
   normalizeStatus,
 } from './core.mjs';
+import { applyCreateDefaults, describeAppliedDefault } from './preferences.mjs';
 
 const INBOX_PROJECT = Object.freeze({
   id: 'inbox',
@@ -86,7 +87,7 @@ function requireString(args, key, label = key) {
   const value = args[key];
   if (typeof value !== 'string' || !value.trim()) {
     throw new TickTickError(`Missing or invalid ${label}. Provide a non-empty string.`, {
-      code: 'INVALID_ARGUMENTS',
+      code: 'TICKTICK_INVALID_ARGUMENTS',
     });
   }
   return value.trim();
@@ -96,7 +97,7 @@ function optionalString(args, key) {
   if (args[key] === undefined) return undefined;
   if (args[key] === null) return null;
   if (typeof args[key] !== 'string') {
-    throw new TickTickError(`${key} must be a string.`, { code: 'INVALID_ARGUMENTS' });
+    throw new TickTickError(`${key} must be a string.`, { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
   return args[key];
 }
@@ -104,7 +105,7 @@ function optionalString(args, key) {
 function optionalBoolean(args, key) {
   if (args[key] === undefined) return undefined;
   if (typeof args[key] !== 'boolean') {
-    throw new TickTickError(`${key} must be true or false.`, { code: 'INVALID_ARGUMENTS' });
+    throw new TickTickError(`${key} must be true or false.`, { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
   return args[key];
 }
@@ -114,7 +115,7 @@ function optionalInteger(args, key, min, max) {
   const value = Number(args[key]);
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new TickTickError(`${key} must be an integer from ${min} to ${max}.`, {
-      code: 'INVALID_ARGUMENTS',
+      code: 'TICKTICK_INVALID_ARGUMENTS',
     });
   }
   return value;
@@ -123,7 +124,7 @@ function optionalInteger(args, key, min, max) {
 function requireInteger(value, field) {
   const number = Number(value);
   if (!Number.isSafeInteger(number)) {
-    throw new TickTickError(`${field} must be an integer.`, { code: 'INVALID_ARGUMENTS' });
+    throw new TickTickError(`${field} must be an integer.`, { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
   return number;
 }
@@ -133,18 +134,18 @@ function normalizeStringArray(value, field, { max = 50, allowEmpty = true } = {}
   if (value === null) return [];
   if (!Array.isArray(value) || value.length > max) {
     throw new TickTickError(`${field} must be an array with at most ${max} strings.`, {
-      code: 'INVALID_ARGUMENTS',
+      code: 'TICKTICK_INVALID_ARGUMENTS',
     });
   }
   if (!allowEmpty && value.length === 0) {
     throw new TickTickError(`${field} must contain at least one item.`, {
-      code: 'INVALID_ARGUMENTS',
+      code: 'TICKTICK_INVALID_ARGUMENTS',
     });
   }
   const result = value.map((item) => {
     if (typeof item !== 'string' || !item.trim()) {
       throw new TickTickError(`${field} must contain non-empty strings.`, {
-        code: 'INVALID_ARGUMENTS',
+        code: 'TICKTICK_INVALID_ARGUMENTS',
       });
     }
     return item.trim();
@@ -261,12 +262,12 @@ function normalizeItems(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (!Array.isArray(value)) {
-    throw new TickTickError('items must be an array or null.', { code: 'INVALID_ARGUMENTS' });
+    throw new TickTickError('items must be an array or null.', { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
   return value.map((item, index) => {
     if (!item || typeof item !== 'object') {
       throw new TickTickError(`items[${index}] must be an object.`, {
-        code: 'INVALID_ARGUMENTS',
+        code: 'TICKTICK_INVALID_ARGUMENTS',
       });
     }
     const out = {};
@@ -274,7 +275,7 @@ function normalizeItems(value) {
     if (item.title !== undefined) {
       if (typeof item.title !== 'string' || !item.title.trim()) {
         throw new TickTickError(`items[${index}].title must be a non-empty string.`, {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       out.title = item.title.trim();
@@ -283,7 +284,7 @@ function normalizeItems(value) {
       const status = Number(item.status);
       if (status !== 0 && status !== 1) {
         throw new TickTickError(`items[${index}].status must be 0 or 1.`, {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       out.status = status;
@@ -295,7 +296,7 @@ function normalizeItems(value) {
     if (item.isAllDay !== undefined) {
       if (typeof item.isAllDay !== 'boolean') {
         throw new TickTickError(`items[${index}].isAllDay must be true or false.`, {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       out.isAllDay = item.isAllDay;
@@ -311,7 +312,7 @@ function buildTaskFields(args) {
   const title = optionalString(args, 'title');
   if (title !== undefined) {
     if (title === null || !title.trim()) {
-      throw new TickTickError('title cannot be empty.', { code: 'INVALID_ARGUMENTS' });
+      throw new TickTickError('title cannot be empty.', { code: 'TICKTICK_INVALID_ARGUMENTS' });
     }
     payload.title = title.trim();
   }
@@ -336,7 +337,7 @@ function buildTaskFields(args) {
       const repeatFrom = String(args.repeatFrom);
       if (!['0', '1', '2'].includes(repeatFrom)) {
         throw new TickTickError('repeatFrom must be "0", "1" or "2".', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       payload.repeatFrom = repeatFrom;
@@ -352,7 +353,7 @@ function buildTaskFields(args) {
 
 function normalizePriorityList(value) {  if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length === 0) {
-    throw new TickTickError('priority must be a non-empty array.', { code: 'INVALID_ARGUMENTS' });
+    throw new TickTickError('priority must be a non-empty array.', { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
   return value.map((item) => normalizePriority(item));
 }
@@ -442,31 +443,34 @@ export const TOOL_DEFS = [
     handler: async (client, args) => {
       const projectId = requireString(args, 'projectId');
       const includeTasks = optionalBoolean(args, 'includeTasks') ?? true;
-      if (projectId === 'inbox') {
-        const tasks = includeTasks
-          ? (await client.filterTasks({ projectIds: ['inbox'], status: [0] })) || []
-          : null;
+      const isInbox = projectId === 'inbox';
+
+      if (!includeTasks) {
+        return {
+          project: isInbox ? { ...INBOX_PROJECT } : compactProject(await client.getProject(projectId)),
+          count: null,
+          tasks: null,
+          columns: null,
+        };
+      }
+
+      // One read decides both `count` and `tasks`, so they cannot disagree.
+      if (isInbox) {
+        const tasks = (await client.filterTasks({ projectIds: ['inbox'], status: [0] })) || [];
         return {
           project: { ...INBOX_PROJECT },
-          count: tasks ? tasks.length : null,
-          tasks: tasks ? tasks.map(compactTask) : null,
-          columns: tasks ? [] : null,
+          count: tasks.length,
+          tasks: tasks.map(compactTask),
+          columns: [],
         };
       }
-      if (includeTasks) {
-        const data = await client.getProjectData(projectId);
-        return {
-          project: compactProject(data?.project),
-          count: Array.isArray(data?.tasks) ? data.tasks.length : 0,
-          tasks: (data?.tasks || []).map(compactTask),
-          columns: data?.columns || [],
-        };
-      }
+      const data = await client.getProjectData(projectId);
+      const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
       return {
-        project: compactProject(await client.getProject(projectId)),
-        count: null,
-        tasks: null,
-        columns: null,
+        project: compactProject(data?.project),
+        count: tasks.length,
+        tasks: tasks.map(compactTask),
+        columns: data?.columns || [],
       };
     },
   },
@@ -513,7 +517,7 @@ export const TOOL_DEFS = [
       const patch = projectFields(args);
       if (Object.keys(patch).length === 0) {
         throw new TickTickError('Provide at least one project field to update.', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       return { project: compactProject(await client.updateProject(projectId, patch)) };
@@ -603,7 +607,7 @@ export const TOOL_DEFS = [
       const end = body.endDate ? Date.parse(body.endDate) : null;
       if (start !== null && end !== null && start > end) {
         throw new TickTickError('startDate must be on or before endDate.', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       const limit = optionalInteger(args, 'limit', 1, 200) ?? 100;
@@ -634,7 +638,8 @@ export const TOOL_DEFS = [
     handler: async (client, args) => {
       const body = { keywords: requireString(args, 'keywords', 'search keywords') };
       if (args.projectIds !== undefined) body.projectIds = normalizeStringArray(args.projectIds, 'projectIds');
-      if (args.tags !== undefined) body.tags = normalizeStringArray(args.tags, 'tags');
+      // TickTick's task endpoints take the singular `tag`, in search and filter alike.
+      if (args.tags !== undefined) body.tag = normalizeStringArray(args.tags, 'tags');
       body.status = normalizeStatus(args.status);
       for (const field of ['dueFrom', 'dueTo']) {
         if (args[field] !== undefined) body[field] = normalizeDate(args[field], field);
@@ -649,10 +654,15 @@ export const TOOL_DEFS = [
       // locally so an empty search does not look like a missing task.
       if (tasks.length === 0) {
         searchMode = 'local';
-        const filters = bodyFromFilters(args);
-        delete filters.startDate;
-        delete filters.endDate;
-        const candidates = await client.filterTasks(filters);
+        // The filter endpoint shares the tag/status/project vocabulary with
+        // search; only `keywords` is search-only.
+        const candidates = await client.filterTasks({
+          ...(body.projectIds ? { projectIds: body.projectIds } : {}),
+          ...(body.tag ? { tag: body.tag } : {}),
+          status: body.status,
+          ...(body.dueFrom ? { dueFrom: body.dueFrom } : {}),
+          ...(body.dueTo ? { dueTo: body.dueTo } : {}),
+        });
         const needle = body.keywords.toLocaleLowerCase();
         const from = body.dueFrom ? Date.parse(body.dueFrom) : null;
         const to = body.dueTo ? Date.parse(body.dueTo) : null;
@@ -763,13 +773,13 @@ export const TOOL_DEFS = [
       if (current.projectId && current.projectId !== projectId) {
         throw new TickTickError(
           'The task belongs to a different project. Use move_tasks instead of update_task to move it.',
-          { code: 'INVALID_ARGUMENTS' },
+          { code: 'TICKTICK_INVALID_ARGUMENTS' },
         );
       }
       const patch = buildTaskFields(args);
       if (Object.keys(patch).length === 0) {
         throw new TickTickError('Provide at least one task field to update.', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       const merged = { ...current, ...patch, id: taskId, projectId };
@@ -805,7 +815,7 @@ export const TOOL_DEFS = [
       if (args.taskIds !== undefined) {
         if (args.taskId !== undefined) {
           throw new TickTickError('Pass either taskId or taskIds, not both.', {
-            code: 'INVALID_ARGUMENTS',
+            code: 'TICKTICK_INVALID_ARGUMENTS',
           });
         }
         const taskIds = normalizeStringArray(args.taskIds, 'taskIds', { max: 50, allowEmpty: false });
@@ -871,7 +881,7 @@ export const TOOL_DEFS = [
       const toProjectId = requireString(args, 'toProjectId');
       if (fromProjectId === toProjectId) {
         throw new TickTickError('fromProjectId and toProjectId must be different.', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       const taskIds = normalizeStringArray(args.taskIds, 'taskIds', { max: 50, allowEmpty: false });
@@ -918,14 +928,14 @@ export const TOOL_DEFS = [
       }
       if (args.action !== 'create') {
         throw new TickTickError('action must be "list" or "create".', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       const name = requireString(args, 'name', 'tag name').toLowerCase();
       const label = (optionalString(args, 'label') || name).trim();
       if (label.toLowerCase() !== name) {
         throw new TickTickError('label must match name when lowercased.', {
-          code: 'INVALID_ARGUMENTS',
+          code: 'TICKTICK_INVALID_ARGUMENTS',
         });
       }
       return { tag: compactTag(await client.createTag({ name, label })) };
@@ -935,7 +945,7 @@ export const TOOL_DEFS = [
     name: 'manage_comments',
     description:
       'List, add or delete comments on a TickTick task. Use action "list", "add" with content, or "delete" with commentId and confirm:true.',
-    annotations: destructive,
+    annotations: writeOnly,
     parameters: {
       type: 'object',
       properties: {
@@ -981,7 +991,7 @@ export const TOOL_DEFS = [
         return { deleted: true, projectId, taskId, commentId };
       }
       throw new TickTickError('action must be "list", "add" or "delete".', {
-        code: 'INVALID_ARGUMENTS',
+        code: 'TICKTICK_INVALID_ARGUMENTS',
       });
     },
   },
@@ -1000,7 +1010,7 @@ const TYPE_CHECKS = {
 };
 
 function schemaError(path, message) {
-  return new TickTickError(`${path || 'arguments'} ${message}`, { code: 'INVALID_ARGUMENTS' });
+  return new TickTickError(`${path || 'arguments'} ${message}`, { code: 'TICKTICK_INVALID_ARGUMENTS' });
 }
 
 /**
@@ -1012,15 +1022,18 @@ function validateAgainst(schema, value, path) {
   if (!schema || typeof schema !== 'object') return;
 
   if (Array.isArray(schema.oneOf)) {
-    const matched = schema.oneOf.some((option) => {
+    const matches = schema.oneOf.filter((option) => {
       try {
         validateAgainst(option, value, path);
         return true;
       } catch {
         return false;
       }
-    });
-    if (!matched) throw schemaError(path, 'does not match any of the allowed shapes.');
+    }).length;
+    // oneOf means exactly one: a value matching two shapes is ambiguous, not valid.
+    if (matches !== 1) {
+      throw schemaError(path, `must match exactly one of the allowed shapes (${matches} matched).`);
+    }
     return;
   }
   if (Array.isArray(schema.anyOf)) {
@@ -1099,18 +1112,36 @@ function validateAgainst(schema, value, path) {
   }
 }
 
-export async function callTool(name, args, client) {
+export async function callTool(name, args, client, options = {}) {
   const tool = TOOLS_BY_NAME.get(name);
   if (!tool) {
-    throw new TickTickError(`Unknown TickTick tool: ${name}`, { code: 'UNKNOWN_TOOL' });
+    throw new TickTickError(`Unknown TickTick tool: ${name}`, { code: 'TICKTICK_UNKNOWN_TOOL' });
   }
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
     throw new TickTickError('Tool arguments must be a JSON object.', {
-      code: 'INVALID_ARGUMENTS',
+      code: 'TICKTICK_INVALID_ARGUMENTS',
     });
   }
-  validateAgainst(tool.parameters, args, '');
-  return tool.handler(client, args);
+
+  // The host settings decide what an undated task means. Applied before
+  // validation so the schema stays the contract the caller sees, and only
+  // where the caller left the field out.
+  let prepared = args;
+  let applied = null;
+  if (name === 'create_task') {
+    const preparedCall = applyCreateDefaults(args, options.preferences, {
+      now: options.now,
+      timeZone: options.timeZone,
+    });
+    prepared = preparedCall.args;
+    applied = preparedCall.applied;
+    if (applied && typeof options.onDefaultApplied === 'function') {
+      options.onDefaultApplied(applied, describeAppliedDefault(applied));
+    }
+  }
+
+  validateAgainst(tool.parameters, prepared, '');
+  return tool.handler(client, prepared);
 }
 
 export function manifestTools() {

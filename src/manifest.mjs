@@ -11,7 +11,7 @@ export const manifest = {
     'Use when the user wants to see, add, edit, complete, delete, move, search or organize TickTick tasks, projects, tags or comments, or asks about their TickTick agenda, inbox, priorities or due dates.',
   version: VERSION,
   releaseNotes:
-    'Follow-up to 1.2.0. The token store has one error code for reads, writes and removal, so a permission problem no longer looks like a missing connection; an unknown schema type is refused instead of accepting any value; manage_tags and move_tasks return the same projections as every other read; a batch complete_task no longer serialises an undefined projectId; and the tool list and the manifest are one projection. New tests cover a mismatched OAuth state, a truncated response and logout.',
+    'The Cindy connection now survives restarts. TickTick issues no refresh token, and the host keeps OAuth access tokens in memory only, so every restart marked the account expired and asked for a new sign-in. The plugin now runs the TickTick authorization-code flow itself and stores the access token as its own credential, which the host persists and injects per request. Connect once in the plugin settings: open the sign-in link, then paste the address the browser lands on. Existing host-OAuth accounts are no longer used; connect again after updating. The standalone MCP server is unchanged.',
   icon: 'assets/icon.png',
   readme: {
     en: 'README.md',
@@ -26,27 +26,22 @@ export const manifest = {
     hosts: ['api.ticktick.com', 'ticktick.com'],
     secrets: [
       {
-        key: 'ticktick_account',
-        label: 'TickTick account',
-        source: 'oauth',
-        hint: 'Connect your TickTick account in the browser. No API token is needed.',
+        key: 'ticktick_token',
+        label: 'TickTick access token',
+        source: 'user',
+        hint: 'Connect TickTick in this plugin’s settings. The token is issued by TickTick; do not paste one here.',
         inject: {
           header: 'Authorization',
           format: 'Bearer {value}',
           hosts: ['api.ticktick.com'],
         },
-        oauth: {
-          authorizeUrl: 'https://ticktick.com/oauth/authorize',
-          tokenUrl: 'https://api.ticktick.com/oauth/token',
-          clientId: '4OO7Zzir01YsqCXfo6',
-          scopes: ['tasks:read', 'tasks:write'],
-          pkce: true,
-          redirectPort: 53682,
-        },
       },
     ],
   },
+  // The connection is optional at install time: the settings page runs the
+  // sign-in, and a missing token answers with a message that points there
+  // instead of a password card nobody can fill in.
   setup: {
-    requires: [{ anyOf: ['secret:ticktick_account'] }],
+    requires: [],
   },
 };

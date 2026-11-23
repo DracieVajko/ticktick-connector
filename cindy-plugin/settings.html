@@ -41,51 +41,86 @@
     .hint, .message { color: var(--text-secondary, #666); font-size: 12px; }
     .message.error { color: var(--danger, #d14343); }
     .message.ok { color: var(--success, #2f9e62); }
-    .accounts { display: grid; gap: 8px; }
-    .account {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      justify-content: space-between;
+    .step {
+      display: grid;
+      gap: 8px;
       padding: 10px;
       border: 1px solid var(--border-default, #d9d9d4);
       border-radius: 10px;
       background: var(--surface, #fff);
     }
-    .account-main { display: grid; gap: 2px; min-width: 0; }
-    .account-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .account-meta { color: var(--text-secondary, #666); font-size: 12px; }
-    .account-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-    .badge {
-      display: inline-block;
-      margin-left: 6px;
-      padding: 1px 6px;
-      border-radius: 999px;
-      background: var(--surface-2, rgba(127,127,127,.12));
-      font-size: 11px;
-      font-weight: 500;
+    .step-title { font-weight: 600; }
+    select {
+      padding: 7px 9px;
+      border: 1px solid var(--border-default, #d9d9d4);
+      border-radius: 8px;
+      background: var(--surface, #fff);
+      color: inherit;
+      font: inherit;
+      max-width: 100%;
+    }
+    textarea {
+      width: 100%;
+      min-height: 62px;
+      resize: vertical;
+      padding: 8px;
+      border: 1px solid var(--border-default, #d9d9d4);
+      border-radius: 8px;
+      background: var(--surface-2, rgba(127,127,127,.08));
+      color: inherit;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     a { color: var(--accent, #4772fa); }
-    .empty { padding: 10px 0; color: var(--text-secondary, #666); }
+    .signin { font-weight: 600; }
+    .hidden { display: none; }
+    code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--surface-2, rgba(127,127,127,.12)); padding: 1px 5px; border-radius: 5px; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="row">
-      <strong>TickTick account</strong>
+      <strong>TickTick</strong>
       <span class="status"><span class="dot" id="dot"></span><span id="statusText">Checking…</span></span>
     </div>
 
-    <div class="hint">
-      Connect with your TickTick account in the browser. Cindy stores the OAuth token in its encrypted vault and refreshes it automatically.
-      No API token or manually copied credentials are needed.
+    <div class="hint" id="summary">
+      The token TickTick returns is stored in Cindy’s encrypted vault, so the connection keeps working after Cindy or
+      the computer restarts.
     </div>
 
-    <div class="accounts" id="accounts"></div>
+    <div class="step" id="step-signin">
+      <div class="step-title">1. Sign in at TickTick</div>
+      <div class="hint" id="signInHint">Preparing the sign-in link…</div>
+      <div class="row">
+        <a class="signin hidden" id="signIn" href="https://ticktick.com/webapp/">Open TickTick sign-in ↗</a>
+        <button id="prepare" class="hidden">Get the sign-in link again</button>
+      </div>
+    </div>
 
-    <div class="row">
-      <button class="primary" id="connect">Connect TickTick</button>
-      <a href="https://ticktick.com/webapp/" id="webLink">Open TickTick ↗</a>
+    <div class="step" id="step-paste">
+      <div class="step-title">2. Paste the address the browser lands on</div>
+      <div class="hint">
+        After you approve access, TickTick sends the browser to <code>127.0.0.1</code>, which shows “cannot be reached”.
+        That is expected: copy the whole address from the address bar and paste it here.
+      </div>
+      <textarea id="callback" spellcheck="false" placeholder="http://127.0.0.1:53682/callback?code=…"></textarea>
+      <div class="row">
+        <button class="primary" id="save">Save connection</button>
+        <button class="danger hidden" id="disconnect">Disconnect</button>
+      </div>
+    </div>
+
+    <div class="step" id="step-defaults">
+      <div class="step-title">New tasks</div>
+      <label class="hint" for="taskDateDefault">When a task is created without a date</label>
+      <div class="row">
+        <select id="taskDateDefault">
+          <option value="today">Due today, all day</option>
+          <option value="undated-to-inbox">No date, and it goes to the Inbox</option>
+          <option value="explicit">No date, and it stays in the chosen project</option>
+        </select>
+      </div>
+      <div class="hint" id="defaultsHint"></div>
     </div>
 
     <div class="message" id="message" role="status" aria-live="polite"></div>

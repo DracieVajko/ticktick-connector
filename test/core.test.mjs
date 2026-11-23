@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createClient,
-  detectApiBase,
+  resolveApiBase,
   normalizeDate,
   normalizePriority,
   normalizeStatus,
@@ -26,14 +26,14 @@ test('normalizeDate accepts date-only and normalizes ISO offsets', () => {
   assert.throws(() => normalizeDate('2026-05-01T99:99:99+0000'), TickTickError);
 });
 
-test('detectApiBase only accepts https or localhost overrides', () => {
-  assert.equal(detectApiBase(undefined), undefined);
-  assert.equal(detectApiBase('  '), undefined);
-  assert.equal(detectApiBase('https://api.example.test/open/v1'), 'https://api.example.test/open/v1');
-  assert.equal(detectApiBase('http://127.0.0.1:8080/open/v1'), 'http://127.0.0.1:8080/open/v1');
-  assert.equal(detectApiBase('http://localhost:8080/open/v1'), 'http://localhost:8080/open/v1');
-  assert.throws(() => detectApiBase('http://api.example.test/open/v1'), TickTickError);
-  assert.throws(() => detectApiBase('not a url'), TickTickError);
+test('resolveApiBase only accepts https or localhost overrides', () => {
+  assert.equal(resolveApiBase(undefined), undefined);
+  assert.equal(resolveApiBase('  '), undefined);
+  assert.equal(resolveApiBase('https://api.example.test/open/v1'), 'https://api.example.test/open/v1');
+  assert.equal(resolveApiBase('http://127.0.0.1:8080/open/v1'), 'http://127.0.0.1:8080/open/v1');
+  assert.equal(resolveApiBase('http://localhost:8080/open/v1'), 'http://localhost:8080/open/v1');
+  assert.throws(() => resolveApiBase('http://api.example.test/open/v1'), TickTickError);
+  assert.throws(() => resolveApiBase('not a url'), TickTickError);
 });
 
 test('normalizePriority accepts names and TickTick numeric values', () => {

@@ -21,6 +21,7 @@ export default [
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         Buffer: 'readonly',
+        BroadcastChannel: 'readonly',
       },
     },
     rules: {

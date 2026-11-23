@@ -2,7 +2,7 @@
 
 One TickTick implementation, two ways to use it. **Cindy is the primary target**; the same source also ships a portable MCP server for every other harness.
 
-- **Cindy plugin** — native tools, OAuth token stored in Cindy’s encrypted vault, `$ticktick` command.
+- **Cindy plugin** — native tools, access token kept in Cindy’s encrypted vault, `$ticktick` command.
 - **MCP server** — a dependency-free stdio server for Claude Code, Codex, Claude Desktop, Cursor and any other MCP client, with its own browser OAuth login.
 
 It manages tasks, projects, tags and comments in [TickTick](https://ticktick.com/). Habits, focus sessions and countdowns are intentionally out of scope for v1.
@@ -23,14 +23,28 @@ Dates accept `YYYY-MM-DD` or ISO 8601 and are normalized to TickTick’s `yyyy-M
 
 No manually copied API token is needed.
 
-- **Cindy plugin:** click **Connect TickTick** and sign in through the browser. Cindy stores and refreshes the OAuth token in its encrypted vault.
+- **Cindy plugin:** open the plugin settings, use the sign-in link, approve access, then paste the address the browser lands on. The plugin exchanges the code itself and hands the access token to Cindy’s encrypted vault, which injects it per request.
 - **MCP server:** run `ticktick-mcp login` once. It opens the browser, receives the localhost callback, and stores the token in `~/.config/ticktick-connector/oauth.json` with owner-only permissions.
 
 Both use TickTick’s OAuth PKCE flow with the `tasks:read` and `tasks:write` scopes. The OAuth callback is `http://127.0.0.1:53682/callback`.
 
+TickTick issues no refresh token. Cindy keeps OAuth access tokens in memory and persists only refresh tokens, so a host-managed TickTick account was marked expired after every restart of Cindy or the computer. The plugin therefore owns the token: it is a normal plugin credential, persisted by Cindy, and it stays valid until TickTick’s own expiry (about 180 days). The settings page shows that date and asks for a new sign-in when it passes.
+
+## New-task defaults (Cindy plugin)
+
+The plugin settings decide what a task without a date means, so a quick add behaves the same way every time:
+
+| Setting | What is created |
+| --- | --- |
+| **Due today, all day** | every task created without a date is due today and all day |
+| **No date, and it goes to the Inbox** | an undated task is treated as unclassified and lands in the Inbox with no date |
+| **No date, and it stays in the chosen project** | nothing is added; this is the default when the setting was never touched |
+
+A date the assistant states always wins, in every mode. The value is stored in the plugin's own host KV, read on each tool call, and shown in the plugin settings. The standalone MCP server has no host settings and therefore always runs in the last mode.
+
 ## Use it in Cindy
 
-Install the plugin from the Cindy marketplace, or import the `.cindy` package. Then click **Connect TickTick** in the plugin settings and approve access in the browser.
+Install the plugin from the Cindy marketplace, or import the `.cindy` package. Then connect in the plugin settings: open the sign-in link, approve access, and paste the address the browser lands on (it points at `127.0.0.1` and fails to load — that is expected).
 
 ```text
 $ticktick show my open tasks
@@ -135,17 +149,27 @@ Failures come back as a `TickTickError` with one of these codes:
 | `TICKTICK_AUTH` | TickTick rejected the authorization (HTTP 401/403). |
 | `TICKTICK_TOKEN_MISSING` | No OAuth token or personal token is configured. |
 | `TICKTICK_AUTH_EXPIRED` | The saved authorization expired and there is no refresh token. |
-| `TICKTICK_OAUTH` | The browser sign-in failed (state mismatch, cancelled, or missing code). |
+| `TICKTICK_TOKEN_STORE` | The token file could not be read, written or removed, or is corrupt. |
+| `TICKTICK_NOT_CONNECTED` | The Cindy plugin has no stored token yet: connect it in the plugin settings. |
+| `TICKTICK_NO_CRYPTO` | This Cindy build cannot produce secure random bytes, so sign-in cannot start. |
+| `TICKTICK_OAUTH` | The browser sign-in failed for a reason without a more specific code. |
+| `TICKTICK_OAUTH_CONFIG` | The OAuth client configuration or PKCE input is invalid. |
 | `TICKTICK_OAUTH_LISTEN` | The OAuth callback port is busy. |
 | `TICKTICK_OAUTH_TIMEOUT` | The browser sign-in was not completed in time. |
-| `TICKTICK_TOKEN_STORE` | The token file could not be read or removed. |
+| `TICKTICK_OAUTH_STATE` | No sign-in was open when a callback arrived, so it could not be checked. |
+| `TICKTICK_OAUTH_CALLBACK` | The pasted address was not a usable TickTick callback. |
+| `TICKTICK_OAUTH_DENIED` | TickTick refused the authorization. |
 | `TICKTICK_OAUTH_EXCHANGE` | The OAuth code or refresh-token call failed. |
+| `TICKTICK_INVALID_CONFIGURATION` | An environment or client setting is unusable (for example an API base or port). |
+| `TICKTICK_INVALID_ARGUMENTS` | A tool argument failed the schema or a normalizer. |
+| `TICKTICK_UNKNOWN_TOOL` | The requested tool does not exist. |
 | `TICKTICK_HTTP` | Any other non-2xx answer from the API. |
 | `TICKTICK_NOT_FOUND` | The requested task does not exist. |
 | `TICKTICK_CONNECTOR_ERROR` | An unexpected failure inside the connector. |
 | `TICKTICK_NETWORK` | The request never reached TickTick. |
 | `TICKTICK_TIMEOUT` | The request exceeded `TICKTICK_TIMEOUT_MS`. |
 | `TICKTICK_RESPONSE_TOO_LARGE` | Cindy truncated the response. |
+| `TICKTICK_ERROR` | Fallback code when a `TickTickError` is raised without one. |
 
 ## Environment
 
@@ -166,7 +190,7 @@ Failures come back as a `TickTickError` with one of these codes:
 ## Security notes
 
 - OAuth tokens are stored in `~/.config/ticktick-connector/oauth.json` with mode `0600`; refresh tokens never leave your machine except to TickTick’s token endpoint.
-- The Cindy plugin never exposes the OAuth token to plugin JavaScript; Cindy injects it at request time.
+- In the Cindy plugin the token is handed to Cindy’s vault by the settings page in a single `PUT /secrets` call and is never written to plugin storage, and the vault never returns it (only a 4-character tail). Cindy injects it at request time.
 - The MCP server only sends the token to `api.ticktick.com` unless you override `TICKTICK_API_BASE`, and plain http is refused outside localhost.
 - This project is not affiliated with TickTick. TickTick and its logo are trademarks of their owner. The icon is the official app icon from TickTick’s website.
 

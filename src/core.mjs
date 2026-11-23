@@ -1,8 +1,8 @@
-const DEFAULT_BASE_URL = 'https://api.ticktick.com/open/v1';
+export const DEFAULT_BASE_URL = 'https://api.ticktick.com/open/v1';
 
 export class TickTickError extends Error {
   constructor(message, options = {}) {
-    super(message);
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'TickTickError';
     this.code = options.code || 'TICKTICK_ERROR';
     this.status = options.status;
@@ -35,7 +35,8 @@ function parseBody(text) {
   }
 }
 
-function apiErrorMessage(status, body) {
+/** Map an HTTP status to the one wording every caller uses. */
+export function describeHttpFailure(status, body) {
   const excerpt = typeof body === 'string' ? body.slice(0, 300) : JSON.stringify(body || '').slice(0, 300);
   if (status === 401 || status === 403) {
     return `TickTick rejected the authorization (HTTP ${status}). Check that the connection or token is still valid and belongs to the intended account, then reconnect if needed.`;
@@ -63,7 +64,7 @@ const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
  * Validate an API base override. Plain http is only allowed on the loopback
  * interface, so a bearer token is never sent over an unencrypted network hop.
  */
-export function detectApiBase(raw) {
+export function resolveApiBase(raw) {
   const value = String(raw || '').trim();
   if (!value) return undefined;
   let url;
@@ -71,12 +72,12 @@ export function detectApiBase(raw) {
     url = new URL(value);
   } catch {
     throw new TickTickError(`TICKTICK_API_BASE is not a valid URL: "${value}".`, {
-      code: 'INVALID_CONFIGURATION',
+      code: 'TICKTICK_INVALID_CONFIGURATION',
     });
   }
   if (url.protocol !== 'https:' && !LOCAL_HOSTS.has(url.hostname)) {
     throw new TickTickError('TICKTICK_API_BASE must use https, except for localhost.', {
-      code: 'INVALID_CONFIGURATION',
+      code: 'TICKTICK_INVALID_CONFIGURATION',
     });
   }
   return value;
@@ -123,9 +124,16 @@ export function createClient({ transport, baseUrl = DEFAULT_BASE_URL } = {}) {
     const text = typeof response.text === 'string' ? response.text : '';
     const data = parseBody(text);
     const status = Number(response.status || 0);
+    if (!status) {
+      // No status means the request never produced an HTTP answer; saying
+      // "HTTP 0" would send the caller looking at TickTick for a local failure.
+      throw new TickTickError('The transport returned no HTTP status for the request.', {
+        code: 'TICKTICK_NETWORK',
+      });
+    }
 
     if (status < 200 || status >= 300) {
-      throw new TickTickError(apiErrorMessage(status, data), {
+      throw new TickTickError(describeHttpFailure(status, data), {
         code: status === 401 || status === 403 ? 'TICKTICK_AUTH' : 'TICKTICK_HTTP',
         status,
         body: data,
@@ -254,7 +262,7 @@ export function normalizeDate(value, field = 'date') {
   if (!/^\d{4}-\d{2}-\d{2}(?:[T ].+)?$/.test(input)) {
     throw new TickTickError(
       `Invalid ${field}: "${input}". Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss+HHMM.`,
-      { code: 'INVALID_ARGUMENTS' },
+      { code: 'TICKTICK_INVALID_ARGUMENTS' },
     );
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
@@ -267,7 +275,7 @@ export function normalizeDate(value, field = 'date') {
   if (Number.isNaN(Date.parse(output))) {
     throw new TickTickError(
       `Invalid ${field}: "${input}". Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss+HHMM.`,
-      { code: 'INVALID_ARGUMENTS' },
+      { code: 'TICKTICK_INVALID_ARGUMENTS' },
     );
   }
   return output;
@@ -285,13 +293,14 @@ export function normalizePriority(value, field = 'priority') {
   if (value === null || value === '') return 0;
   if (typeof value === 'string') {
     const key = value.trim().toLowerCase();
-    if (key in PRIORITIES) return PRIORITIES[key];
+    // Own properties only: `'toString' in PRIORITIES` would return a function.
+    if (Object.prototype.hasOwnProperty.call(PRIORITIES, key)) return PRIORITIES[key];
   }
   const number = Number(value);
   if ([0, 1, 3, 5].includes(number)) return number;
   throw new TickTickError(
     `Invalid ${field}: ${JSON.stringify(value)}. Use 0, 1, 3, 5 or none/low/medium/high.`,
-    { code: 'INVALID_ARGUMENTS' },
+    { code: 'TICKTICK_INVALID_ARGUMENTS' },
   );
 }
 
@@ -306,6 +315,6 @@ export function normalizeStatus(value) {
   }
   throw new TickTickError(
     'Invalid status. Use "open", "completed", "all", or an array containing -1, 0 or 2.',
-    { code: 'INVALID_ARGUMENTS' },
+    { code: 'TICKTICK_INVALID_ARGUMENTS' },
   );
 }
