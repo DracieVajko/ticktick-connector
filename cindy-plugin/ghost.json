@@ -756,7 +756,7 @@
               "string",
               "null"
             ],
-            "description": "Move under this parent task; null removes the parent."
+            "description": "Move under this parent task; null removes the parent (sent as an empty id)."
           },
           "sortOrder": {
             "type": "integer"

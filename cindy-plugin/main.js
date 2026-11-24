@@ -596,7 +596,7 @@
     "parentId"
   ];
   function compactTask(task) {
-    if (!task || typeof task !== "object") return task;
+    if (!task || typeof task !== "object") return null;
     const out = pick(task, TASK_FIELDS);
     if (Array.isArray(task.items)) {
       out.items = task.items.map((item) => pick(item, SUBTASK_FIELDS));
@@ -604,16 +604,16 @@
     return out;
   }
   function compactProject(project) {
-    if (!project || typeof project !== "object") return project;
+    if (!project || typeof project !== "object") return null;
     return pick(project, PROJECT_FIELDS);
   }
   var TAG_FIELDS = ["name", "label", "color", "sortOrder", "etag"];
   function compactTag(tag) {
-    if (!tag || typeof tag !== "object") return tag;
+    if (!tag || typeof tag !== "object") return null;
     return pick(tag, TAG_FIELDS);
   }
   function compactComment(comment) {
-    if (!comment || typeof comment !== "object") return comment;
+    if (!comment || typeof comment !== "object") return null;
     return pick(comment, COMMENT_FIELDS);
   }
   function normalizeItems(value) {
@@ -724,7 +724,7 @@
     }
     if (args.priority !== void 0) body.priority = normalizePriorityList(args.priority);
     if (args.tags !== void 0) body.tag = normalizeStringArray(args.tags, "tags");
-    if (args.status !== void 0) body.status = normalizeStatus(args.status);
+    body.status = normalizeStatus(args.status);
     return body;
   }
   function projectFields(args) {
@@ -1089,7 +1089,10 @@
             enum: ["0", "1", "2", null]
           },
           items: itemsSchema,
-          parentId: { type: ["string", "null"], description: "Move under this parent task; null removes the parent." },
+          parentId: {
+            type: ["string", "null"],
+            description: "Move under this parent task; null removes the parent (sent as an empty id)."
+          },
           sortOrder: { type: "integer" }
         },
         required: ["projectId", "taskId"],
