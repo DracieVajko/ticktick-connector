@@ -232,8 +232,15 @@ const UPDATE_TASK_FIELDS = [
   'parentId',
 ];
 
+/**
+ * Response projections. A caller gets either a plain object with the documented
+ * keys or null, never the raw payload with unknown keys.
+ *
+ * @param {unknown} task
+ * @returns {Record<string, unknown> | null}
+ */
 function compactTask(task) {
-  if (!task || typeof task !== 'object') return task;
+  if (!task || typeof task !== 'object') return null;
   const out = pick(task, TASK_FIELDS);
   if (Array.isArray(task.items)) {
     out.items = task.items.map((item) => pick(item, SUBTASK_FIELDS));
@@ -241,20 +248,23 @@ function compactTask(task) {
   return out;
 }
 
+/** @param {unknown} project @returns {Record<string, unknown> | null} */
 function compactProject(project) {
-  if (!project || typeof project !== 'object') return project;
+  if (!project || typeof project !== 'object') return null;
   return pick(project, PROJECT_FIELDS);
 }
 
 const TAG_FIELDS = ['name', 'label', 'color', 'sortOrder', 'etag'];
 
+/** @param {unknown} tag @returns {Record<string, unknown> | null} */
 function compactTag(tag) {
-  if (!tag || typeof tag !== 'object') return tag;
+  if (!tag || typeof tag !== 'object') return null;
   return pick(tag, TAG_FIELDS);
 }
 
+/** @param {unknown} comment @returns {Record<string, unknown> | null} */
 function compactComment(comment) {
-  if (!comment || typeof comment !== 'object') return comment;
+  if (!comment || typeof comment !== 'object') return null;
   return pick(comment, COMMENT_FIELDS);
 }
 
@@ -370,7 +380,9 @@ function bodyFromFilters(args) {
   }
   if (args.priority !== undefined) body.priority = normalizePriorityList(args.priority);
   if (args.tags !== undefined) body.tag = normalizeStringArray(args.tags, 'tags');
-  if (args.status !== undefined) body.status = normalizeStatus(args.status);
+  // Always explicit: the schema declares 'open' as the default and the API
+  // would otherwise decide on its own.
+  body.status = normalizeStatus(args.status);
   return body;
 }
 
@@ -761,7 +773,10 @@ export const TOOL_DEFS = [
           enum: ['0', '1', '2', null],
         },
         items: itemsSchema,
-        parentId: { type: ['string', 'null'], description: 'Move under this parent task; null removes the parent.' },
+        parentId: {
+          type: ['string', 'null'],
+          description: 'Move under this parent task; null removes the parent (sent as an empty id).',
+        },
         sortOrder: { type: 'integer' },
       },
       required: ['projectId', 'taskId'],
@@ -1001,6 +1016,20 @@ export const TOOL_DEFS = [
 
 export const TOOLS_BY_NAME = new Map(TOOL_DEFS.map((tool) => [tool.name, tool]));
 
+/**
+ * Run one tool: apply the configured new-task default, check the declared
+ * contract, then hand the call to its handler.
+ *
+ * @param {string} name tool name from TOOLS_BY_NAME
+ * @param {Record<string, unknown>} args caller arguments
+ * @param {object} client client from createClient()
+ * @param {object} [options]
+ * @param {{ taskDateDefault: string }} [options.preferences] host settings
+ * @param {Date} [options.now] clock injection (tests)
+ * @param {string | null} [options.timeZone] zone injection (tests)
+ * @param {(applied: object, description: string) => void} [options.onDefaultApplied]
+ * @returns {Promise<Record<string, unknown>>}
+ */
 export async function callTool(name, args, client, options = {}) {
   const tool = TOOLS_BY_NAME.get(name);
   if (!tool) {
