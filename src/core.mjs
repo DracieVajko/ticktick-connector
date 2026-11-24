@@ -37,7 +37,9 @@ function parseBody(text) {
 
 /** Map an HTTP status to the one wording every caller uses. */
 export function describeHttpFailure(status, body) {
-  const excerpt = typeof body === 'string' ? body.slice(0, 300) : JSON.stringify(body || '').slice(0, 300);
+  // An empty body must not become an excerpt of `""`.
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? '');
+  const excerpt = text && text !== '""' ? text.slice(0, 300) : '';
   if (status === 401 || status === 403) {
     return `TickTick rejected the authorization (HTTP ${status}). Check that the connection or token is still valid and belongs to the intended account, then reconnect if needed.`;
   }

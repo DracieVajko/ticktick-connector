@@ -413,3 +413,15 @@ test('the new-task default never touches tools other than create_task', async ()
   assert.equal(calls[0].args.length, 1);
   assert.deepEqual(calls[0].args[0], { limit: 200, offset: 0 });
 });
+
+ test('create_task keeps the machine time zone when only a clock is injected', async () => {
+  const { client, calls } = mockClient();
+  const { resolveLocalTimeZone } = await import('../src/preferences.mjs');
+  await callTool('create_task', { projectId: 'p1', title: 'Call' }, client, {
+    preferences: { taskDateDefault: 'today' },
+    now: new Date(2026, 10, 23, 9, 0),
+  });
+  const payload = calls.find((call) => call.name === 'createTask').args[0];
+  assert.equal(payload.timeZone, resolveLocalTimeZone() ?? undefined);
+});
+

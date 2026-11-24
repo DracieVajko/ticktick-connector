@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+﻿import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { createServer } from 'node:http';
@@ -38,7 +38,7 @@ export function oauthRedirectPort() {
   return configured;
 }
 
-const redirectUri = callbackRedirectUri;
+
 
 function loadStoredOAuth() {
   let text;
@@ -243,13 +243,12 @@ export async function loginWithOAuth() {
   const clientId = process.env.TICKTICK_OAUTH_CLIENT_ID || OAUTH.clientId;
   const authorizeUrl = process.env.TICKTICK_OAUTH_AUTHORIZE_URL || OAUTH.authorizeUrl;
   const tokenUrl = process.env.TICKTICK_OAUTH_TOKEN_URL || OAUTH.tokenUrl;
-  const oauthConfigScopes = OAUTH.scopes;
   const requestedPort = oauthRedirectPort();
 
   const server = createServer();
   let settled = false;
   let timer;
-  let redirect = redirectUri(requestedPort);
+  let redirect = callbackRedirectUri(requestedPort);
 
   const result = await new Promise((resolve, reject) => {
     const finish = (fn, value) => {
@@ -290,7 +289,7 @@ export async function loginWithOAuth() {
           verifier,
           redirectUri: redirect,
           clientId,
-          scopes: oauthConfigScopes,
+          scopes: OAUTH.scopes,
         });
         const response = await fetchWithTimeout(tokenUrl, {
           method: 'POST',
@@ -324,14 +323,14 @@ export async function loginWithOAuth() {
     server.listen(requestedPort, '127.0.0.1', () => {
       // Port 0 means "any free port", so the redirect URI must come from the
       // socket rather than from configuration.
-      redirect = redirectUri(server.address().port);
+      redirect = callbackRedirectUri(server.address().port);
       const authUrl = authorizeUrlFor({
         state,
         challenge,
         redirectUri: redirect,
         clientId,
         authorizeUrl,
-        scopes: oauthConfigScopes,
+        scopes: OAUTH.scopes,
       });
       process.stdout.write(`Open this URL to authorize TickTick:\n${authUrl}\n`);
       openBrowser(authUrl);

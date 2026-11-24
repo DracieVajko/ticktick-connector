@@ -76,7 +76,6 @@ function replyError(id, code, message) {
   write({ jsonrpc: '2.0', id, error: { code, message } });
 }
 
-
 function textResult(value) {
   return {
     content: [

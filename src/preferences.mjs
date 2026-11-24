@@ -59,12 +59,10 @@ export function applyCreateDefaults(args, preferences, options = {}) {
   }
 
   const dueDate = localDateStamp(options.now ?? new Date());
-  // A zone the caller stated wins over this machine's zone.
-  const timeZone =
-    (typeof args.timeZone === 'string' && args.timeZone ? args.timeZone : undefined) ??
-    (Object.prototype.hasOwnProperty.call(options, 'timeZone')
-      ? options.timeZone
-      : resolveLocalTimeZone());
+  // A zone the caller stated wins over this machine's zone; null means "send
+  // none". An undefined option never suppresses the machine's own zone.
+  const callerZone = typeof args.timeZone === 'string' && args.timeZone ? args.timeZone : undefined;
+  const timeZone = callerZone ?? (options.timeZone !== undefined ? options.timeZone : resolveLocalTimeZone());
   return {
     args: {
       ...args,

@@ -351,7 +351,8 @@ function buildTaskFields(args) {
   return payload;
 }
 
-function normalizePriorityList(value) {  if (value === undefined) return undefined;
+function normalizePriorityList(value) {
+  if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length === 0) {
     throw new TickTickError('priority must be a non-empty array.', { code: 'TICKTICK_INVALID_ARGUMENTS' });
   }
