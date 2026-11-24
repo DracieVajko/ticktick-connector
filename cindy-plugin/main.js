@@ -34,7 +34,8 @@
     }
   }
   function describeHttpFailure(status, body) {
-    const excerpt = typeof body === "string" ? body.slice(0, 300) : JSON.stringify(body || "").slice(0, 300);
+    const text = typeof body === "string" ? body : JSON.stringify(body ?? "");
+    const excerpt = text && text !== '""' ? text.slice(0, 300) : "";
     if (status === 401 || status === 403) {
       return `TickTick rejected the authorization (HTTP ${status}). Check that the connection or token is still valid and belongs to the intended account, then reconnect if needed.`;
     }
@@ -274,7 +275,8 @@
       };
     }
     const dueDate = localDateStamp(options.now ?? /* @__PURE__ */ new Date());
-    const timeZone = (typeof args.timeZone === "string" && args.timeZone ? args.timeZone : void 0) ?? (Object.prototype.hasOwnProperty.call(options, "timeZone") ? options.timeZone : resolveLocalTimeZone());
+    const callerZone = typeof args.timeZone === "string" && args.timeZone ? args.timeZone : void 0;
+    const timeZone = callerZone ?? (options.timeZone !== void 0 ? options.timeZone : resolveLocalTimeZone());
     return {
       args: {
         ...args,
