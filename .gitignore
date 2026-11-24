@@ -14,3 +14,6 @@ tokens.json
 .desloppify/
 scorecard.png
 query.json
+
+# desloppify skill document (tool artifact)
+.claude/
