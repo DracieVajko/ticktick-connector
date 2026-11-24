@@ -11,7 +11,7 @@ export const manifest = {
     'Use when the user wants to see, add, edit, complete, delete, move, search or organize TickTick tasks, projects, tags or comments, or asks about their TickTick agenda, inbox, priorities or due dates.',
   version: VERSION,
   releaseNotes:
-    'The Cindy connection now survives restarts. TickTick issues no refresh token, and the host keeps OAuth access tokens in memory only, so every restart marked the account expired and asked for a new sign-in. The plugin now runs the TickTick authorization-code flow itself and stores the access token as its own credential, which the host persists and injects per request. Connect once in the plugin settings: open the sign-in link, then paste the address the browser lands on. Existing host-OAuth accounts are no longer used; connect again after updating. The standalone MCP server is unchanged.',
+    'Maintenance release. The JSON Schema validator moved into its own module, response projections now return a documented object or null instead of the raw payload, filter_tasks honours the declared open-status default, and complete_task declares in its schema that a single task needs its project. The settings page connection is split into exchange, store and verify steps. Error codes are one TICKTICK_* namespace, the README error table matches the runtime, and a callback without the OAuth state is refused. New tests cover the schema validator, the new-task time zone and the shared OAuth protocol.',
   icon: 'assets/icon.png',
   readme: {
     en: 'README.md',

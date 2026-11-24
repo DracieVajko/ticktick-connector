@@ -1,0 +1,5 @@
+﻿release: 1.3.1
+
+- settings page connection split into exchange / store / verify steps
+- complete_task schema now states that a single task needs its project
+- version and release notes for the maintenance release

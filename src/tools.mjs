@@ -825,7 +825,8 @@ export const TOOL_DEFS = [
           description: 'Task IDs to complete in one project.',
         },
       },
-      anyOf: [{ required: ['taskId'] }, { required: ['taskIds'] }],
+      // The schema states what the handler enforces: one task needs its project.
+      anyOf: [{ required: ['taskId', 'projectId'] }, { required: ['taskIds'] }],
       additionalProperties: false,
     },
     handler: async (client, args) => {

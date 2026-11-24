@@ -234,6 +234,48 @@ async function refresh() {
   }
 }
 
+/** Trade the pasted callback for a token, through the plugin background. */
+async function requestToken(pasted) {
+  openChannel();
+  const reply = waitForAny(['tt-auth-token', 'tt-auth-error'], 45_000);
+  send({ type: 'tt-auth-finish', callbackUrl: pasted });
+  const answer = await reply;
+  if (!answer) {
+    throw new Error(
+      'The TickTick background did not answer. Keep this window open, wake the plugin, and try again.',
+    );
+  }
+  if (!answer.token) throw new Error(describeError(answer));
+  return answer;
+}
+
+/** Hand the token to the vault; only its metadata goes to /kv. */
+async function storeToken(answer) {
+  // The token goes straight into the host vault: it is not kept in /kv, in
+  // localStorage or in a variable after this call.
+  let token = answer.token;
+  answer.token = null;
+  const response = await fetch(`/secrets/${KEY}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value: token }),
+  });
+  token = null;
+  if (response.status !== 204) {
+    throw new Error(`Cindy could not store the token (HTTP ${response.status}).`);
+  }
+  await putKv({
+    connectedAt: Date.now(),
+    ...(Number.isFinite(answer.expiresAt) ? { expiresAt: answer.expiresAt } : {}),
+  });
+}
+
+/** Ask the background to prove the host injects the saved token. */
+async function verifyConnection() {
+  const reply = waitFor('tt-verify-result', 25_000);
+  send({ type: 'tt-verify' });
+  return reply;
+}
+
 async function saveConnection() {
   const pasted = callbackBox.value.trim();
   if (!pasted) {
@@ -243,47 +285,10 @@ async function saveConnection() {
   setBusy(true);
   setMessage('Checking the address with TickTick…');
   try {
-    openChannel();
-    const reply = waitForAny(['tt-auth-token', 'tt-auth-error'], 45_000);
-    send({ type: 'tt-auth-finish', callbackUrl: pasted });
-    const answer = await reply;
-
-    if (!answer) {
-      setMessage(
-        'The TickTick background did not answer. Keep this window open, wake the plugin, and try again.',
-        'error',
-      );
-      return;
-    }
-    if (!answer.token) {
-      setMessage(describeError(answer), 'error');
-      return;
-    }
-
-    // The token goes straight into the host vault: it is not kept in /kv, in
-    // localStorage or in a variable after this call.
-    let token = answer.token;
-    answer.token = null;
-    const secretsResponse = await fetch(`/secrets/${KEY}`, {
-      method: 'PUT',
-      body: JSON.stringify({ value: token }),
-    });
-    token = null;
-    if (secretsResponse.status !== 204) {
-      setMessage(`Cindy could not store the token (HTTP ${secretsResponse.status}). Try again.`, 'error');
-      return;
-    }
-
-    await putKv({
-      connectedAt: Date.now(),
-      ...(Number.isFinite(answer.expiresAt) ? { expiresAt: answer.expiresAt } : {}),
-    });
-
+    const answer = await requestToken(pasted);
+    await storeToken(answer);
     callbackBox.value = '';
-    const verifyReply = waitFor('tt-verify-result', 25_000);
-    send({ type: 'tt-verify' });
-    const verify = await verifyReply;
-
+    const verify = await verifyConnection();
     await refresh();
     if (verify?.ok) {
       setMessage('TickTick connected. The token now survives restarts.', 'ok');
